@@ -58,6 +58,9 @@ class BlinkDetector:
         "P5": 153,  # Palpebra inferiore
         "P6": 144,  # Palpebra inferiore
     }
+    forehead: int = 9
+    chin: int = 199
+    orientation_references: dict[str, int] = {"forehead": 9, "chin": 199}
 
     # Metodo costruttore
     def __init__(
@@ -70,6 +73,7 @@ class BlinkDetector:
         ear_diff: float = 0.05,
         model_path: str | None = None,
         calibration_threshold_ratio: float = 0.60,
+        sensitivity_coefficient: float = 0.15,
     ) -> None:
         """
         Initializes the BlinkDetector with specific thresholds for gesture detection.
@@ -82,7 +86,8 @@ class BlinkDetector:
             max_combo_delay (int): Maximum delay (ms) allowed between consecutive blinks to be grouped into the same combo.
             ear_diff (float): Tolerance for EAR difference to avoid false asymmetrical blink triggers (e.g. skin pulling).
             model_path (str | None): Absolute path to the MediaPipe Face Landmarker model. If None, uses the bundled model.
-            calibration_threshold_ratio (float): Ratio applied to the calculated EAR average during calibration (default is 0.75).
+            calibration_threshold_ratio (float): Ratio applied to the calculated EAR average during calibration (default is 0.60).
+            sensitivity_coefficient (float): Coefficient to adjust the dynamic threshold based on face pitch.
         """
         # Flag per indicare lo stato di esecuzione dell'API
         self.is_running: bool | None = None
@@ -94,6 +99,10 @@ class BlinkDetector:
         # self.EAR_THRESHOLD: float = ear_threshold  # Soglia di apertura dell'occhio
         self.left_ear_threshold: float = left_ear_threshold
         self.right_ear_threshold: float = right_ear_threshold
+        self.delta_prospective_acc: float = 0.0
+        self.current_delta_prospective: float | None = None
+        self.default_face_prospective: float | None = None
+        self.sensitivity_coefficient: float = sensitivity_coefficient
 
         # Soglia minima e massima per considerare il battito volontario
         self.min_blink_time_threshold: int = min_blink_time_threshold
@@ -113,11 +122,9 @@ class BlinkDetector:
         self.on_calibration_callback: Callable[[float, float], None] | None = None
 
         self.last_action: ActionType | None = None
-        # Contatori di tempo per il quale l'occhio è stato chiuso
+
+        # Contatore del tempo per il quale l'occhio è stato chiuso
         self.blink_time_counter: int | None = None
-        self.left_blink_time_counter: int | None = None
-        self.right_blink_time_counter: int | None = None
-        self.both_blink_time_counter: int | None = None
 
         # Funzioni di callback per quando viene effettuata una gesture con il battito delle ciglia
         self.on_blink: Callable[[list[tuple[ActionType, int]]], None] | None = None
@@ -160,7 +167,14 @@ class BlinkDetector:
         self.actions.clear()
         self.last_reopening_timestamp = None
 
-    def frame_preparation(self, frame, rgb) -> None:
+    def frame_preparation(self, rgb) -> None:
+        """
+        Prepares the frame for MediaPipe processing by converting formats and managing timestamps.
+
+        Args:
+            frame: The original BGR frame captured by OpenCV.
+            rgb: The converted RGB frame to be used by MediaPipe.
+        """
 
         ### Fase di preparazione dati
 
@@ -183,28 +197,72 @@ class BlinkDetector:
         output_image: mp.Image,
         timestamp_ms: int,
     ) -> None:
-        def get_pixel_coordinates(eye_dict: dict[str, int]) -> dict[str, np.ndarray]:
-            # Nuovo dizionario che invece di salvare l'indice del punto facciale, ne salva le coordinate X e Y in pixel sullo schermo
-            pixel_eye_dict: dict[str, np.ndarray] = {}
+        """
+        Callback invoked by MediaPipe for every processed frame.
+        Handles coordinate extraction, dynamic threshold adjustments via pitch estimation,
+        and delegates to the precision filter or calibration method.
 
-            for key, index in eye_dict.items():
+        Args:
+            result (vision.FaceLandmarkerResult): The face landmark detection results.
+            output_image (mp.Image): The image processed by MediaPipe.
+            timestamp_ms (int): The timestamp of the processed frame.
+        """
+
+        def get_pixel_coordinates(
+            points_dict: dict[str, int], is_face_orientation: bool = False
+        ) -> dict[str, np.ndarray]:
+            # Nuovo dizionario che invece di salvare l'indice del punto facciale, ne salva le coordinate X e Y in pixel sullo schermo
+            pixel_points_dict: dict[str, np.ndarray] = {}
+
+            for key, index in points_dict.items():
                 # Dai dati del volto, viene estratto il punto del volto equivalente all'indice iterato e assegnato a face_point_data.
                 # Essendo che ogni punto del volto ha 3 attributi X, e Y adesso face_point_data ha i 3 punti di face_landmarks[index]
                 face_point_data = face_landmarks[index]
 
-                # A ogni iterazione viene aggiunto al nuovo dizionario il prodotto tra gli attributi delle coordinate X, Y, Z di face_point_data
+                # A ogni iterazione viene aggiunto al nuovo dizionario il prodotto tra gli attributi delle coordinate X e Y di face_point_data
                 # e la larghezza e altezza del frame.
                 # Il prodotto viene racchiuso in un np.array[...] (vettore di NumPy), in quanto la funzione dist.euclidian usata nel
                 # metodo ear_math richiede che i punti facciali siano formattati in questa maniera.
-                pixel_eye_dict[key] = np.array(
-                    [face_point_data.x * width, face_point_data.y * height]
-                )
 
-            return pixel_eye_dict
+                if is_face_orientation is False:
+                    pixel_points_dict[key] = np.array(
+                        [face_point_data.x * width, face_point_data.y * height]
+                    )
+                else:
+                    # Ricorda che la scala della profondità è proporzionale alla larghezza dell'immagine (fonte: docs di mediapipe)
+                    pixel_points_dict[key] = np.array(
+                        [
+                            face_point_data.x * width,
+                            face_point_data.y * height,
+                            face_point_data.z * width,
+                        ]
+                    )
+
+            return pixel_points_dict
 
         def precision_filter() -> None:
-            is_left_eye_closed: bool = sx_ear < self.left_ear_threshold
-            is_right_eye_closed: bool = dx_ear < self.right_ear_threshold
+            ### Calcolo soglia dinamica
+
+            current_left_ear_threshold: float = self.left_ear_threshold
+            current_right_ear_threshold: float = self.right_ear_threshold
+
+            if (
+                self.default_face_prospective is not None
+                and self.current_delta_prospective is not None
+            ):
+                angular_delta: float = (
+                    self.current_delta_prospective - self.default_face_prospective
+                )
+                current_left_ear_threshold = self.left_ear_threshold - (
+                    angular_delta * self.sensitivity_coefficient
+                )
+                current_right_ear_threshold = self.right_ear_threshold - (
+                    angular_delta * self.sensitivity_coefficient
+                )
+
+            ### Filtro di precisione
+            is_left_eye_closed: bool = sx_ear < current_left_ear_threshold
+            is_right_eye_closed: bool = dx_ear < current_right_ear_threshold
             are_both_eyes_closed: bool = is_left_eye_closed and is_right_eye_closed
             left_eye_filter: bool = (
                 is_left_eye_closed and (dx_ear - sx_ear) > self.ear_diff
@@ -266,14 +324,15 @@ class BlinkDetector:
             return
 
         # Ottenimento dati sulla dimensione della camera
+        # TODO: Capire come ottenere la profondità (depth)
         height, width = output_image.height, output_image.width
 
         # Vengono salvati i dati in merito alla prima faccia trovata da MediaPipe (478 oggetti NormalizedLandmark)
         face_landmarks = result.face_landmarks[0]
 
         # Traduzione dei dizionari dei punti degli occhi in coordinate X, Y dei pixel sullo schermo
-        left_eye_coordinates = get_pixel_coordinates(self.left_eye)
-        right_eye_coordinates = get_pixel_coordinates(self.right_eye)
+        left_eye_coordinates = get_pixel_coordinates(points_dict=self.left_eye)
+        right_eye_coordinates = get_pixel_coordinates(points_dict=self.right_eye)
 
         # Calcolo dell'EAR per l'occhio Sinistro (prospettiva umana)
         sx_ear: float = self.ear_math(
@@ -284,6 +343,14 @@ class BlinkDetector:
         dx_ear: float = self.ear_math(
             eye_coordinates=right_eye_coordinates,
         )
+
+        orientation_coordinates = get_pixel_coordinates(
+            points_dict=self.orientation_references, is_face_orientation=True
+        )
+
+        self.current_delta_prospective = (
+            orientation_coordinates["chin"][2] - orientation_coordinates["forehead"][2]
+        ) / dist.euclidean(left_eye_coordinates["P1"], right_eye_coordinates["P1"])
 
         # Se la calibrazione è impostata su True allora avvia la calibrazione,
         # altrimenti continua filtrando le gesture e chiamando funzioni di callback
@@ -318,6 +385,14 @@ class BlinkDetector:
         return EAR
 
     def calibration(self, sx_ear: float, dx_ear: float, timestamp_ms: int) -> None:
+        """
+        Calibrates the base EAR thresholds and default face pitch (prospective) over a 3-second period.
+
+        Args:
+            sx_ear (float): The current EAR for the left eye.
+            dx_ear (float): The current EAR for the right eye.
+            timestamp_ms (int): The current frame timestamp in milliseconds.
+        """
         if self.calib_start_time is None:
             self.calib_start_time = timestamp_ms
             log.info(
@@ -326,6 +401,10 @@ class BlinkDetector:
 
         self.sum_left_ear += sx_ear
         self.sum_right_ear += dx_ear
+
+        if self.current_delta_prospective is not None:
+            self.delta_prospective_acc += self.current_delta_prospective
+
         self.count_ear += 1
 
         time_elapsed: int = timestamp_ms - self.calib_start_time
@@ -340,6 +419,8 @@ class BlinkDetector:
 
             self.is_calibrating = False
             self.calib_start_time = None
+
+            self.default_face_prospective = self.delta_prospective_acc / self.count_ear
 
             if self.on_calibration_callback is not None:
                 self.on_calibration_callback(AVG_LEFT_EAR, AVG_RIGHT_EAR)
@@ -379,6 +460,7 @@ class BlinkDetector:
                 self.sum_left_ear = 0.0
                 self.sum_right_ear = 0.0
                 self.count_ear = 0
+                self.delta_prospective_acc = 0.0
 
                 log.info("Avvio telecamera in modalità CALIBRAZIONE.")
             case _:
@@ -399,7 +481,7 @@ class BlinkDetector:
 
             rgb_frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
 
-            self.frame_preparation(frame=frame, rgb=rgb_frame)
+            self.frame_preparation(rgb=rgb_frame)
 
             if mode == "calibrate" and self.is_calibrating is False:
                 break

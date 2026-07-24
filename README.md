@@ -3,8 +3,6 @@
 **OGM** is a Python API that allows the implementation of highly customizable eye gestures.
 
 Currently, OGM supports only blinking gestures. These are fully customizable, allowing the API user to build potentially infinite combinations of actions (RAM permitting).
-> [!WARNING]
-> At the moment, if you move your head up or down, the API take it as a false blink. I'm working out to fix it in the next version 0.1.3.
 
 ---
 
@@ -35,17 +33,22 @@ I have included DocStrings within the API files, so if any information is missin
 
 ***Usage Example (Calibration & Detection):***
 ```python
+### file_name: main.py
+# 
 import time
 from ogm import ActionType, BlinkDetector, CameraConfig
 
-# Initialize the detector - You can adjust the threshold severity here if needed
-blink_detector = BlinkDetector(calibration_threshold_ratio=0.60)
+# Initialize the detector - For greater accuracy, you should adjust these 3 parameters.
+#                           See the DocStrings for more info about them (i'm lazy).
+blink_detector = BlinkDetector(
+    ear_diff=0.05, calibration_threshold_ratio=0.60, sensitivity_coefficient=0.15
+)
 
 # Define the callback for automatic calibration
 def on_calibration(left_eye: float, right_eye: float):
-    print(f"Calibration finished.\nLeft EAR: {left_eye:.3f}, Right EAR: {right_eye:.3f}")
     blink_detector.left_ear_threshold = left_eye
     blink_detector.right_ear_threshold = right_eye
+    print(f"Calibration finished.\nLeft EAR: {left_eye}, Right EAR: {right_eye}")
 
 # Define the callback to handle gesture sequences
 def on_actions(actions: list[tuple[ActionType, int]]):
@@ -111,7 +114,7 @@ if __name__ == "__main__":
 ---
 
 ## Acknowledgments & Legal
-This library is built as a wrapper and mathematical layer on top of [Google MediaPipe](https://developers.google.com/mediapipe) for high-performance, real-time facial landmark detection. 
+This library is built as a wrapper and mathematical layer on top of [Google MediaPipe](https://developers.google.com/mediapipe) for high-performance, real-time facial and hand landmark detection.
 
 The OGM library bundles the `face_landmarker.task` model, which is provided by Google under the **Apache License 2.0**. 
 For more details, please refer to the official [MediaPipe repository](https://github.com/google-ai-edge/mediapipe).
@@ -120,7 +123,7 @@ For more details, please refer to the official [MediaPipe repository](https://gi
 
 ## Development Roadmap
 The roadmap I have set for the development of this API is:
-1. Blinking gestures module <-- **Work in progress at 80% (v0.1.3?)**
+1. Blinking gestures module <-- **Major features implemented!**
 2. Hand movement gestures module. (v0.2.0)
 3. Eyebrow movement gestures module. (v0.3.0)
 4. Eye movement gestures module. (v0.4.0)
