@@ -1,6 +1,6 @@
-# Ocular Gesture Modules (OGM)
+# Organic Gestures Modules (OGM)
 
-**OGM** is a Python API that allows the implementation of highly customizable eye gestures.
+**OGM** is a Python API that allows the implementation of highly customizable of hands and facial gestures.
 
 Currently, OGM supports only blinking gestures. These are fully customizable, allowing the API user to build potentially infinite combinations of actions (RAM permitting).
 
@@ -124,18 +124,19 @@ For more details, please refer to the official [MediaPipe repository](https://gi
 ## Development Roadmap
 The roadmap I have set for the development of this API is:
 1. Blinking gestures module <-- **Major features implemented!**
-2. Hand movement gestures module. (v0.2.0)
-3. Eyebrow movement gestures module. (v0.3.0)
-4. Eye movement gestures module. (v0.4.0)
+3. Eyebrow movement gestures module. (v0.2.0)
+4. Eye movement gestures module. (v0.3.0)
+5. Mouth movement gestures module. (v0.4.0)
+2. Hand movement gestures module. (v0.5.0)
 5. Rewriting the core API in C++ and Rust. (v1.0.0)
-6. Creating bindings for JavaScript. (v1.1.0)
-7. Creating bindings for Dart (v1.2.0)
+6. Creating bindings for JavaScript.
+7. Creating other bindings?
 
 ---
 
 ```
 ###
-# project: Ocular Gesture Modules (OGM)
+# project: Organic Gestures Modules (OGM)
 # project-start: 2026-06-26 (yyyy-mm-dd)
 # author-username: @gyratina on GitHub
 # author-name: Valerio Di Tommaso

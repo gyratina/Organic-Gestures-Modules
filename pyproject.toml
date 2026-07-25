@@ -8,7 +8,7 @@ version = "0.1.3"
 authors = [
   { name="Valerio Di Tommaso", email="contact.me@valerioditommaso.dev" },
 ]
-description = "Ocular Gesture Modules (OGM) - API for eye gesture detection."
+description = "Organic Gestures Modules (OGM) - API for hands and facial gestures detection."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -26,9 +26,9 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/gyratina/Ocular-Gesture-Modules"
-"Repository" = "https://github.com/gyratina/Ocular-Gesture-Modules"
-"Bug Tracker" = "https://github.com/gyratina/Ocular-Gesture-Modules/issues"
+"Homepage" = "https://github.com/gyratina/Organic-Gestures-Modules"
+"Repository" = "https://github.com/gyratina/Organic-Gestures-Modules"
+"Bug Tracker" = "https://github.com/gyratina/Organic-Gestures-Modules/issues"
 
 [tool.setuptools.packages.find]
 include = ["ogm*"]

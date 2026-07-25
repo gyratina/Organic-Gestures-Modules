@@ -1,5 +1,5 @@
 ###
-# project: Ocular Gesture Modules (OGM)
+# project: Organic Gestures Modules (OGM)
 # project-start: 2026-06-26 (yyyy-mm-dd)
 # author-username: @gyratina on GitHub
 # author-name: Valerio Di Tommaso
