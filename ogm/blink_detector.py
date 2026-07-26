@@ -65,15 +65,15 @@ class BlinkDetector:
     # Metodo costruttore
     def __init__(
         self,
-        left_ear_threshold: float = 0.16,
-        right_ear_threshold: float = 0.16,
+        base_left_ear_threshold: float = 0.16,
+        base_right_ear_threshold: float = 0.16,
         min_blink_time_threshold: int = 80,
         max_blink_time_threshold: int = 500,
         max_combo_delay: int = 2000,
-        ear_diff: float = 0.05,
+        ear_diff: float = 0.03,
         model_path: str | None = None,
-        calibration_threshold_ratio: float = 0.60,
-        sensitivity_coefficient: float = 0.15,
+        calibration_threshold_ratio: float = 0.50,
+        sensitivity_coefficient: float = 0.07,
     ) -> None:
         """
         Initializes the BlinkDetector with specific thresholds for gesture detection.
@@ -96,12 +96,16 @@ class BlinkDetector:
         self.ogm_thread: threading.Thread | None = None
 
         # Soglie di apertura dell'occhio
-        # self.EAR_THRESHOLD: float = ear_threshold  # Soglia di apertura dell'occhio
-        self.left_ear_threshold: float = left_ear_threshold
-        self.right_ear_threshold: float = right_ear_threshold
+        self.base_left_ear_threshold: float = base_left_ear_threshold
+        self.base_right_ear_threshold: float = base_right_ear_threshold
+        self.current_left_ear_threshold: float = self.base_left_ear_threshold
+        self.current_right_ear_threshold: float = self.base_right_ear_threshold
+
+        # Parametri per la soglia dinamica in base all'inclinazione del volto
         self.delta_prospective_acc: float = 0.0
         self.current_delta_prospective: float | None = None
         self.default_face_prospective: float | None = None
+        self.angular_delta: float = 0.0
         self.sensitivity_coefficient: float = sensitivity_coefficient
 
         # Soglia minima e massima per considerare il battito volontario
@@ -119,15 +123,18 @@ class BlinkDetector:
 
         self.is_calibrating: bool = False
         self.calibration_threshold_ratio: float = calibration_threshold_ratio
-        self.on_calibration_callback: Callable[[float, float], None] | None = None
 
         self.last_action: ActionType | None = None
 
         # Contatore del tempo per il quale l'occhio è stato chiuso
         self.blink_time_counter: int | None = None
 
-        # Funzioni di callback per quando viene effettuata una gesture con il battito delle ciglia
+        # Funzioni di callback
         self.on_blink: Callable[[list[tuple[ActionType, int]]], None] | None = None
+        self.on_calibration: Callable[[float, float], None] | None = None
+
+        # TODO: Callback della telemetria
+        self.telemetry_callback: Callable[[dict[str, float]], None] | None = None
 
         # Percorso file del model bundle
         if model_path is None:
@@ -243,26 +250,31 @@ class BlinkDetector:
         def precision_filter() -> None:
             ### Calcolo soglia dinamica
 
-            current_left_ear_threshold: float = self.left_ear_threshold
-            current_right_ear_threshold: float = self.right_ear_threshold
-
             if (
                 self.default_face_prospective is not None
                 and self.current_delta_prospective is not None
             ):
-                angular_delta: float = (
+                self.angular_delta = (
                     self.current_delta_prospective - self.default_face_prospective
                 )
-                current_left_ear_threshold = self.left_ear_threshold - (
-                    angular_delta * self.sensitivity_coefficient
+                self.current_left_ear_threshold = self.base_left_ear_threshold - (
+                    self.angular_delta * self.sensitivity_coefficient
                 )
-                current_right_ear_threshold = self.right_ear_threshold - (
-                    angular_delta * self.sensitivity_coefficient
+                self.current_right_ear_threshold = self.base_right_ear_threshold - (
+                    self.angular_delta * self.sensitivity_coefficient
+                )
+
+                # Clamping della soglia dinamica
+                self.current_left_ear_threshold = max(
+                    0.05, min(0.25, self.current_left_ear_threshold)
+                )
+                self.current_right_ear_threshold = max(
+                    0.05, min(0.25, self.current_right_ear_threshold)
                 )
 
             ### Filtro di precisione
-            is_left_eye_closed: bool = sx_ear < current_left_ear_threshold
-            is_right_eye_closed: bool = dx_ear < current_right_ear_threshold
+            is_left_eye_closed: bool = sx_ear < self.current_left_ear_threshold
+            is_right_eye_closed: bool = dx_ear < self.current_right_ear_threshold
             are_both_eyes_closed: bool = is_left_eye_closed and is_right_eye_closed
             left_eye_filter: bool = (
                 is_left_eye_closed and (dx_ear - sx_ear) > self.ear_diff
@@ -359,6 +371,17 @@ class BlinkDetector:
         else:
             precision_filter()
 
+        telemetry_dict: dict[str, float] = {
+            "sx_eye_EAR": sx_ear,
+            "dx_eye_EAR": dx_ear,
+            "sx_eye_EAR_THRESHOLD": self.current_left_ear_threshold,
+            "dx_eye_EAR_THRESHOLD": self.current_right_ear_threshold,
+            "face_pitch": self.angular_delta,
+        }
+
+        if self.telemetry_callback is not None:
+            self.telemetry_callback(telemetry_dict)
+
     def ear_math(self, eye_coordinates) -> float:
         """
         Calculates the Eye Aspect Ratio (EAR) based on the 6 facial landmarks defining an eye.
@@ -422,8 +445,8 @@ class BlinkDetector:
 
             self.default_face_prospective = self.delta_prospective_acc / self.count_ear
 
-            if self.on_calibration_callback is not None:
-                self.on_calibration_callback(AVG_LEFT_EAR, AVG_RIGHT_EAR)
+            if self.on_calibration is not None:
+                self.on_calibration(AVG_LEFT_EAR, AVG_RIGHT_EAR)
 
     def _execution_loop(
         self, mode: str = "detect", camera_config: CameraConfig | None = None

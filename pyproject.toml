@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ogm-vision"
-version = "0.1.3"
+version = "0.1.4"
 authors = [
   { name="Valerio Di Tommaso", email="contact.me@valerioditommaso.dev" },
 ]
-description = "Organic Gestures Modules (OGM) - API for hands and facial gestures detection."
+description = "API that allows the implementation of highly customizable hands and facial gestures."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
