@@ -114,10 +114,12 @@ if __name__ == "__main__":
 ---
 
 ## Acknowledgments & Legal
-This library is built as a wrapper and mathematical layer on top of [Google MediaPipe](https://developers.google.com/mediapipe) for high-performance, real-time facial and hand landmark detection.
+This library is released under the **[Apache License 2.0](LICENSE)**.
 
-The OGM library bundles the `face_landmarker.task` model, which is provided by Google under the **Apache License 2.0**. 
-For more details, please refer to the official [MediaPipe repository](https://github.com/google-ai-edge/mediapipe).
+OGM is built as a wrapper and mathematical layer on top of [Google MediaPipe](https://developers.google.com/mediapipe) for high-performance, real-time facial and hand landmark detection.
+
+The OGM library bundles the `face_landmarker.task` model, which is provided by Google LLC under the **Apache License 2.0**. 
+For full copyright notices and third-party attribution, please refer to the **[NOTICE](NOTICE)** and **[LICENSE](LICENSE)** files, or visit the official [MediaPipe repository](https://github.com/google-ai-edge/mediapipe).
 
 ---
 
