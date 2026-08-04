@@ -140,9 +140,10 @@ The roadmap I have set for the development of this API is:
 ###
 # project: Organic Gestures Modules (OGM)
 # project-start: 2026-06-26 (yyyy-mm-dd)
-# author-username: @gyratina on GitHub
+# author-username: @gyratina (on GitHub)
 # author-name: Valerio Di Tommaso
 # author-email: contact.me@valerioditommaso.dev
+# licence: Apache Licence 2.0
 ###
 ```
 
