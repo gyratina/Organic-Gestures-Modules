@@ -73,7 +73,7 @@ class BlinkDetector:
         ear_diff: float = 0.03,
         model_path: str | None = None,
         calibration_threshold_ratio: float = 0.50,
-        sensitivity_coefficient: float = 0.07,
+        sensitivity_coefficient: float = 0.4,
     ) -> None:
         """
         Initializes the BlinkDetector with specific thresholds for gesture detection.
@@ -258,47 +258,58 @@ class BlinkDetector:
                     self.current_delta_prospective - self.default_face_prospective
                 )
                 self.current_left_ear_threshold = self.base_left_ear_threshold - (
-                    self.angular_delta * self.sensitivity_coefficient
+                    (self.angular_delta**2.0) * self.sensitivity_coefficient
                 )
                 self.current_right_ear_threshold = self.base_right_ear_threshold - (
-                    self.angular_delta * self.sensitivity_coefficient
+                    (self.angular_delta**2.0) * self.sensitivity_coefficient
                 )
 
                 # Clamping della soglia dinamica
                 self.current_left_ear_threshold = max(
-                    0.05, min(0.25, self.current_left_ear_threshold)
+                    0.0,
+                    min(self.base_left_ear_threshold, self.current_left_ear_threshold),
                 )
                 self.current_right_ear_threshold = max(
-                    0.05, min(0.25, self.current_right_ear_threshold)
+                    0.0,
+                    min(
+                        self.base_right_ear_threshold, self.current_right_ear_threshold
+                    ),
                 )
 
             ### Filtro di precisione
-            is_left_eye_closed: bool = sx_ear < self.current_left_ear_threshold
-            is_right_eye_closed: bool = dx_ear < self.current_right_ear_threshold
+            left_eye_ratio: float = sx_ear / self.current_left_ear_threshold
+            right_eye_ratio: float = dx_ear / self.current_right_ear_threshold
+
+            is_left_eye_closed: bool = left_eye_ratio < 1.0
+            is_right_eye_closed: bool = right_eye_ratio < 1.0
             are_both_eyes_closed: bool = is_left_eye_closed and is_right_eye_closed
-            left_eye_filter: bool = (
-                is_left_eye_closed and (dx_ear - sx_ear) > self.ear_diff
-            )
-            right_eye_filter: bool = (
-                is_right_eye_closed and (sx_ear - dx_ear) > self.ear_diff
-            )
 
             reopening_moment: int | None = None
             lapse: int | None = None
 
             current_action: ActionType | None = None
-            if left_eye_filter:
-                current_action = ActionType.LEFT
-            elif right_eye_filter:
-                current_action = ActionType.RIGHT
-            elif are_both_eyes_closed:
-                current_action = ActionType.BOTH
 
-            if current_action is not None and self.blink_time_counter is None:
+            if are_both_eyes_closed:
+                if (right_eye_ratio - left_eye_ratio) > self.ear_diff:
+                    current_action = ActionType.LEFT
+                elif (left_eye_ratio - right_eye_ratio) > self.ear_diff:
+                    current_action = ActionType.RIGHT
+                else:
+                    current_action = ActionType.BOTH
+
+            elif current_action is None:
+                if is_left_eye_closed:
+                    current_action = ActionType.LEFT
+                elif is_right_eye_closed:
+                    current_action = ActionType.RIGHT
+                else:
+                    current_action = None
+
+            if self.blink_time_counter is None:
                 self.blink_time_counter = timestamp_ms
 
             if current_action != self.last_action:
-                if self.blink_time_counter is not None and self.last_action is not None:
+                if self.last_action is not None:
                     reopening_moment = timestamp_ms
                     blink_time: int = reopening_moment - self.blink_time_counter
 

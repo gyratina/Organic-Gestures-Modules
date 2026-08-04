@@ -1,6 +1,6 @@
 # Organic Gestures Modules (OGM)
 
-**OGM** is a Python API that allows the implementation of highly customizable of hands and facial gestures.
+**OGM** is a Python API that allows the implementation of highly customizable hands and facial gestures.
 
 Currently, OGM supports only blinking gestures. These are fully customizable, allowing the API user to build potentially infinite combinations of actions (RAM permitting).
 
@@ -13,7 +13,7 @@ If you download this repository, navigate inside and run:
 pip install .
 ```
 
-Alternatively:
+Alternatively you can install the last stable release:
 ```bash
 pip install ogm-vision
 ```
