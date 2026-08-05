@@ -21,6 +21,7 @@
 # file-name: camera_config.py
 # ========================================================================
 
+
 import logging
 
 import cv2 as cv

@@ -21,6 +21,7 @@
 # file-name: __init__.py
 # ========================================================================
 
+
 from .blink_detector import ActionType, BlinkDetector
 from .camera_config import CameraConfig
 
