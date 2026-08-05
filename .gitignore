@@ -10,6 +10,7 @@ designDoc.md
 pyrightconfig.json
 tasks.json
 main.py
+roadmap.md
 
 # Build e Packaging di Python
 dist/
