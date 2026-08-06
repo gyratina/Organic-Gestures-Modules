@@ -20,6 +20,8 @@
 # author-email: contact.me@valerioditommaso.dev
 # file-name: pyproject.toml
 # ========================================================================
+
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
@@ -42,9 +44,7 @@ classifiers = [
 ]
 dependencies = [
     "mediapipe",
-    "opencv-python",
-    "numpy",
-    "scipy"
+    "opencv-python"
 ]
 
 [project.urls]
