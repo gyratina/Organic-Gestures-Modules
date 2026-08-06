@@ -265,6 +265,108 @@ class BlinkDetector:
 
         return pixel_points_dict
 
+    def precision_filter(self, sx_ear: float, dx_ear: float, timestamp_ms: int) -> None:
+        ### Calcolo soglia dinamica
+
+        if (
+            self.default_face_prospective is not None
+            and self.current_delta_prospective is not None
+        ):
+            self.angular_delta = (
+                self.current_delta_prospective - self.default_face_prospective
+            )
+
+            angular_delta_penality: float | None = None
+            if self.angular_delta < 0:
+                angular_delta_penality = (
+                    0.7 * (self.angular_delta**2) * self.sensitivity_coefficient
+                )
+            else:
+                angular_delta_penality = (
+                    self.angular_delta**2 * self.sensitivity_coefficient
+                )
+
+            self.current_left_ear_threshold = self.base_left_ear_threshold - (
+                angular_delta_penality
+            )
+            self.current_right_ear_threshold = self.base_right_ear_threshold - (
+                angular_delta_penality
+            )
+
+            ### Clamping della soglia dinamica
+            self.current_left_ear_threshold = max(
+                self.left_eye_min_floor,
+                min(self.base_left_ear_threshold, self.current_left_ear_threshold),
+            )
+            self.current_right_ear_threshold = max(
+                self.right_eye_min_floor,
+                min(self.base_right_ear_threshold, self.current_right_ear_threshold),
+            )
+
+        ### Filtro di precisione
+        left_eye_ratio: float = sx_ear / self.current_left_ear_threshold
+        right_eye_ratio: float = dx_ear / self.current_right_ear_threshold
+
+        is_left_eye_closed: bool = left_eye_ratio < 1.0
+        is_right_eye_closed: bool = right_eye_ratio < 1.0
+        are_both_eyes_closed: bool = is_left_eye_closed and is_right_eye_closed
+
+        reopening_moment: int | None = None
+        lapse: int | None = None
+
+        current_action: ActionType | None = None
+
+        if are_both_eyes_closed:
+            if (right_eye_ratio - left_eye_ratio) > self.ear_diff_ratio:
+                current_action = ActionType.LEFT
+            elif (left_eye_ratio - right_eye_ratio) > self.ear_diff_ratio:
+                current_action = ActionType.RIGHT
+            else:
+                current_action = ActionType.BOTH
+
+        elif current_action is None:
+            if is_left_eye_closed:
+                current_action = ActionType.LEFT
+            elif is_right_eye_closed:
+                current_action = ActionType.RIGHT
+            else:
+                current_action = None
+
+        if self.blink_time_counter is None:
+            self.blink_time_counter = timestamp_ms
+
+        if current_action != self.last_action:
+            if self.last_action is not None:
+                reopening_moment = timestamp_ms
+                blink_time: int = reopening_moment - self.blink_time_counter
+
+                if (
+                    self.min_blink_time_threshold
+                    <= blink_time
+                    <= self.max_blink_time_threshold
+                ):
+                    if not self.actions and self.last_reopening_timestamp is None:
+                        self.actions.append((self.last_action, 0))
+                        self.last_reopening_timestamp = reopening_moment
+
+                    elif self.last_reopening_timestamp is not None:
+                        lapse = self.blink_time_counter - self.last_reopening_timestamp
+                        if lapse > self.max_combo_delay:
+                            self.actions.clear()
+                            self.actions.append((self.last_action, 0))
+                            self.last_reopening_timestamp = reopening_moment
+                        else:
+                            self.actions[-1] = (self.actions[-1][0], lapse)
+                            self.actions.append((self.last_action, 0))
+                            self.last_reopening_timestamp = reopening_moment
+
+                    # Chiamata a funzione di callback
+                    if self.on_blink is not None:
+                        self.on_blink(self.actions)
+
+            self.last_action = current_action
+            self.blink_time_counter = None
+
     def mediapipe_callback(
         self,
         result: vision.FaceLandmarkerResult,
@@ -281,112 +383,6 @@ class BlinkDetector:
             output_image (mp.Image): The image processed by MediaPipe.
             timestamp_ms (int): The timestamp of the processed frame.
         """
-
-        def precision_filter() -> None:
-            ### Calcolo soglia dinamica
-
-            if (
-                self.default_face_prospective is not None
-                and self.current_delta_prospective is not None
-            ):
-                self.angular_delta = (
-                    self.current_delta_prospective - self.default_face_prospective
-                )
-
-                angular_delta_penality: float | None = None
-                if self.angular_delta < 0:
-                    angular_delta_penality = (
-                        0.7 * (self.angular_delta**2) * self.sensitivity_coefficient
-                    )
-                else:
-                    angular_delta_penality = (
-                        self.angular_delta**2 * self.sensitivity_coefficient
-                    )
-
-                self.current_left_ear_threshold = self.base_left_ear_threshold - (
-                    angular_delta_penality
-                )
-                self.current_right_ear_threshold = self.base_right_ear_threshold - (
-                    angular_delta_penality
-                )
-
-                ### Clamping della soglia dinamica
-                self.current_left_ear_threshold = max(
-                    self.left_eye_min_floor,
-                    min(self.base_left_ear_threshold, self.current_left_ear_threshold),
-                )
-                self.current_right_ear_threshold = max(
-                    self.right_eye_min_floor,
-                    min(
-                        self.base_right_ear_threshold, self.current_right_ear_threshold
-                    ),
-                )
-
-            ### Filtro di precisione
-            left_eye_ratio: float = sx_ear / self.current_left_ear_threshold
-            right_eye_ratio: float = dx_ear / self.current_right_ear_threshold
-
-            is_left_eye_closed: bool = left_eye_ratio < 1.0
-            is_right_eye_closed: bool = right_eye_ratio < 1.0
-            are_both_eyes_closed: bool = is_left_eye_closed and is_right_eye_closed
-
-            reopening_moment: int | None = None
-            lapse: int | None = None
-
-            current_action: ActionType | None = None
-
-            if are_both_eyes_closed:
-                if (right_eye_ratio - left_eye_ratio) > self.ear_diff_ratio:
-                    current_action = ActionType.LEFT
-                elif (left_eye_ratio - right_eye_ratio) > self.ear_diff_ratio:
-                    current_action = ActionType.RIGHT
-                else:
-                    current_action = ActionType.BOTH
-
-            elif current_action is None:
-                if is_left_eye_closed:
-                    current_action = ActionType.LEFT
-                elif is_right_eye_closed:
-                    current_action = ActionType.RIGHT
-                else:
-                    current_action = None
-
-            if self.blink_time_counter is None:
-                self.blink_time_counter = timestamp_ms
-
-            if current_action != self.last_action:
-                if self.last_action is not None:
-                    reopening_moment = timestamp_ms
-                    blink_time: int = reopening_moment - self.blink_time_counter
-
-                    if (
-                        self.min_blink_time_threshold
-                        <= blink_time
-                        <= self.max_blink_time_threshold
-                    ):
-                        if not self.actions and self.last_reopening_timestamp is None:
-                            self.actions.append((self.last_action, 0))
-                            self.last_reopening_timestamp = reopening_moment
-
-                        elif self.last_reopening_timestamp is not None:
-                            lapse = (
-                                self.blink_time_counter - self.last_reopening_timestamp
-                            )
-                            if lapse > self.max_combo_delay:
-                                self.actions.clear()
-                                self.actions.append((self.last_action, 0))
-                                self.last_reopening_timestamp = reopening_moment
-                            else:
-                                self.actions[-1] = (self.actions[-1][0], lapse)
-                                self.actions.append((self.last_action, 0))
-                                self.last_reopening_timestamp = reopening_moment
-
-                        # Chiamata a funzione di callback
-                        if self.on_blink is not None:
-                            self.on_blink(self.actions)
-
-                self.last_action = current_action
-                self.blink_time_counter = None
 
         # Controllo se la telecamera ha trovato almeno un volto
         if not result.face_landmarks:
@@ -454,7 +450,9 @@ class BlinkDetector:
         if self.is_calibrating:
             self.calibration(sx_ear=sx_ear, dx_ear=dx_ear, timestamp_ms=timestamp_ms)
         else:
-            precision_filter()
+            self.precision_filter(
+                sx_ear=sx_ear, dx_ear=dx_ear, timestamp_ms=timestamp_ms
+            )
 
         telemetry_dict: dict[str, float] = {
             "sx_eye_EAR": sx_ear,
