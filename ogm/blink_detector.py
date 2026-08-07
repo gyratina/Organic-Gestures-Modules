@@ -57,7 +57,7 @@ class BlinkDetector:
     Supports single eye and both eyes gestures, featuring a state-machine based precision filter.
     """
 
-    LEFT_EYE: ClassVar[dict[str, int]] = {
+    _LEFT_EYE: ClassVar[dict[str, int]] = {
         "P1": 263,  # Angolo esterno
         "P2": 385,  # Palpebra superiore
         "P3": 387,  # Palpebra superiore
@@ -65,7 +65,7 @@ class BlinkDetector:
         "P5": 373,  # Palpebra inferiore
         "P6": 380,  # Palpebra inferiore
     }
-    RIGHT_EYE: ClassVar[dict[str, int]] = {
+    _RIGHT_EYE: ClassVar[dict[str, int]] = {
         "P1": 33,  # Angolo esterno
         "P2": 160,  # Palpebra superiore
         "P3": 158,  # Palpebra superiore
@@ -73,7 +73,7 @@ class BlinkDetector:
         "P5": 153,  # Palpebra inferiore
         "P6": 144,  # Palpebra inferiore
     }
-    ORIENTATION_REFERENCES: ClassVar[dict[str, int]] = {
+    _ORIENTATION_REFERENCES: ClassVar[dict[str, int]] = {
         "forehead": 9,
         "chin": 199,
         "left_corner": 263,
@@ -108,108 +108,106 @@ class BlinkDetector:
             sensitivity_coefficient (float): Coefficient to adjust the sensivity of the dynamic threshold based on face pitch.
         """
         # Flag per indicare lo stato di esecuzione dell'API
-        self.is_running: bool | None = None
+        self._is_running: bool | None = None
 
         # Salvataggio del thread per permettere al metodo close() di terminare l'esecuzione
-        self.ogm_thread: threading.Thread | None = None
+        self._ogm_thread: threading.Thread | None = None
 
         # Soglie di apertura dell'occhio
-        self.base_left_ear_threshold: float = base_left_ear_threshold
-        self.base_right_ear_threshold: float = base_right_ear_threshold
-        self.current_left_ear_threshold: float = self.base_left_ear_threshold
-        self.current_right_ear_threshold: float = self.base_right_ear_threshold
+        self._base_left_ear_threshold: float = base_left_ear_threshold
+        self._base_right_ear_threshold: float = base_right_ear_threshold
+        self._current_left_ear_threshold: float = self._base_left_ear_threshold
+        self._current_right_ear_threshold: float = self._base_right_ear_threshold
 
         # Dizionari contente le coordinate X, Y, Z dei punti facciali utilizzato
         # in get_pixel_coordinates per convertire i punti facciali in coordinate
         # pixel
-        self.pixelized_left_eye_dict: dict[str, tuple[float, float]] = {}
-        self.pixelized_right_eye_dict: dict[str, tuple[float, float]] = {}
-        self.pixelized_orientation_references_dict: dict[
+        self._pixelized_left_eye_dict: dict[str, tuple[float, float]] = {}
+        self._pixelized_right_eye_dict: dict[str, tuple[float, float]] = {}
+        self._pixelized_orientation_references_dict: dict[
             str, tuple[float, float, float]
         ] = {}
 
         # Parametri per la soglia dinamica in base all'inclinazione del volto
-        self.delta_prospective_acc: float = 0.0
-        self.current_delta_prospective: float | None = None
-        self.default_face_prospective: float | None = None
-        self.angular_delta: float = 0.0
-        self.sensitivity_coefficient: float = sensitivity_coefficient
+        self._delta_prospective_acc: float = 0.0
+        self._current_delta_prospective: float | None = None
+        self._default_face_prospective: float | None = None
+        self._angular_delta: float = 0.0
+        self._sensitivity_coefficient: float = sensitivity_coefficient
 
         # Soglia minima e massima per considerare il battito volontario
-        self.min_blink_time_threshold: int = min_blink_time_threshold
-        self.max_blink_time_threshold: int = max_blink_time_threshold
+        self._min_blink_time_threshold: int = min_blink_time_threshold
+        self._max_blink_time_threshold: int = max_blink_time_threshold
 
-        self.max_combo_delay: int = max_combo_delay
+        self._max_combo_delay: int = max_combo_delay
 
-        self.actions: list[tuple[ActionType, int]] = []
-        self.last_reopening_timestamp: int | None = None
+        self._actions: list[tuple[ActionType, int]] = []
+        self._last_reopening_timestamp: int | None = None
 
-        self.min_floor_ratio: float = 0.88
-        self.left_eye_min_floor: float = (
-            self.base_left_ear_threshold * self.min_floor_ratio
+        self._min_floor_ratio: float = 0.88
+        self._left_eye_min_floor: float = (
+            self._base_left_ear_threshold * self._min_floor_ratio
         )
-        self.right_eye_min_floor: float = (
-            self.base_right_ear_threshold * self.min_floor_ratio
+        self._right_eye_min_floor: float = (
+            self._base_right_ear_threshold * self._min_floor_ratio
         )
 
         # Tolleranza della differenza di tipo EAR accettabile affinché si possa distinguere un occhio chiuso involontariamente
         # per il tiraggio della pelle nel tentativo di chiuderne uno solo
-        self.ear_diff_ratio: float = ear_diff_ratio
+        self._ear_diff_ratio: float = ear_diff_ratio
 
-        self.is_calibrating: bool = False
-        self.calibration_threshold_ratio: float = calibration_threshold_ratio
+        self._is_calibrating: bool = False
+        self._calibration_threshold_ratio: float = calibration_threshold_ratio
 
-        self.last_action: ActionType | None = None
+        self._last_action: ActionType | None = None
 
         # Contatore del tempo per il quale l'occhio è stato chiuso
-        self.blink_time_counter: int | None = None
+        self._blink_time_counter: int | None = None
 
         # Funzioni di callback
         self.on_blink: Callable[[list[tuple[ActionType, int]]], None] | None = None
         self.on_calibration: Callable[[float, float], None] | None = None
-
-        # Callback della telemetria
         self.telemetry_callback: Callable[[dict[str, float]], None] | None = None
 
         # Percorso file del model bundle
         if model_path is None:
             current_directory: str = os.path.dirname(__file__)
-            self.model_path: str = os.path.join(
+            self._model_path: str = os.path.join(
                 current_directory, "models", "face_landmarker.task"
             )
         else:
-            self.model_path = model_path
+            self._model_path = model_path
 
         # Salva il timestamp dell'ultimo timestamp in millisecondi
-        self.last_timestamp_ms: int = 0
+        self._last_timestamp_ms: int = 0
 
         # Variabili di conteggio e somma per la calibrazione degli occhi
-        self.sum_left_ear: float = 0.0
-        self.sum_right_ear: float = 0.0
-        self.count_ear: int = 0
-        self.calib_start_time: int | None = None
+        self._sum_left_ear: float = 0.0
+        self._sum_right_ear: float = 0.0
+        self._count_ear: int = 0
+        self._calib_start_time: int | None = None
 
         # Face landmarker configuration
-        self.face_landmarker: vision.FaceLandmarker | None = None
+        self._face_landmarker: vision.FaceLandmarker | None = None
 
     def close(self) -> None:
         """
         Signals the internal execution loop to stop, which will smoothly release the camera and MediaPipe resources.
         This method will safely block (join) the calling thread until the background execution thread has completely terminated.
         """
-        self.is_running = False
-        if self.ogm_thread is not None:
-            self.ogm_thread.join()
+        self._is_running = False
+        if self._ogm_thread is not None:
+            self._ogm_thread.join()
         log.info("Esecuzione modulo API terminata.")
 
     def reset_log(self) -> None:
         """
         Clears the logged actions and resets the combo timer. Usually called after a combo is successfully matched.
         """
-        self.actions.clear()
-        self.last_reopening_timestamp = None
+        self._actions.clear()
+        self._last_reopening_timestamp = None
 
-    def frame_preparation(self, rgb) -> None:
+    def _frame_preparation(self, rgb) -> None:
         """
         Prepares the frame for MediaPipe processing by converting formats and managing timestamps.
 
@@ -225,15 +223,15 @@ class BlinkDetector:
 
         # Calcolo del timestamp per ogni frame
         frame_timestamp_ms: int = int(time.time() * 1000)
-        if frame_timestamp_ms <= self.last_timestamp_ms:
-            frame_timestamp_ms = self.last_timestamp_ms + 1
-        self.last_timestamp_ms = frame_timestamp_ms
+        if frame_timestamp_ms <= self._last_timestamp_ms:
+            frame_timestamp_ms = self._last_timestamp_ms + 1
+        self._last_timestamp_ms = frame_timestamp_ms
 
         ### Fase di esecuzione
-        if self.face_landmarker is not None:
-            self.face_landmarker.detect_async(mp_image, frame_timestamp_ms)
+        if self._face_landmarker is not None:
+            self._face_landmarker.detect_async(mp_image, frame_timestamp_ms)
 
-    def get_pixel_coordinates(
+    def _get_pixel_coordinates(
         self,
         face_landmarks,
         frame_height: int,
@@ -243,19 +241,24 @@ class BlinkDetector:
         is_face_orientation: bool = False,
     ) -> dict[str, tuple[float, ...]]:
 
-        for key, index in points_dict.items():
-            # Dai dati del volto, viene estratto il punto del volto equivalente all'indice iterato e assegnato a face_point_data.
-            # Essendo che ogni punto del volto ha 3 attributi X, Y e Z adesso face_point_data ha i 3 punti di face_landmarks[index]
-            face_point_data = face_landmarks[index]
+        if not is_face_orientation:
+            for key, index in points_dict.items():
+                # Dai dati del volto, viene estratto il punto del volto equivalente all'indice iterato e assegnato a face_point_data.
+                # Essendo che ogni punto del volto ha 3 attributi X, Y e Z adesso face_point_data ha i 3 punti di face_landmarks[index]
+                face_point_data = face_landmarks[index]
 
-            # A ogni iterazione viene aggiunto al nuovo dizionario il prodotto tra gli attributi delle coordinate X e Y di face_point_data
-            # e la larghezza e altezza del frame.
-            if is_face_orientation is False:
+                # A ogni iterazione viene aggiunto al nuovo dizionario il prodotto tra gli attributi delle coordinate X e Y di face_point_data
+                # e la larghezza e altezza del frame.
                 pixel_points_dict[key] = (
                     face_point_data.x * frame_width,
                     face_point_data.y * frame_height,
                 )
-            else:
+        else:
+            for key, index in points_dict.items():
+                # Dai dati del volto, viene estratto il punto del volto equivalente all'indice iterato e assegnato a face_point_data.
+                # Essendo che ogni punto del volto ha 3 attributi X, Y e Z adesso face_point_data ha i 3 punti di face_landmarks[index]
+                face_point_data = face_landmarks[index]
+
                 # Ricorda che la scala della profondità è proporzionale alla larghezza dell'immagine (fonte: docs di mediapipe)
                 pixel_points_dict[key] = (
                     face_point_data.x * frame_width,
@@ -265,47 +268,49 @@ class BlinkDetector:
 
         return pixel_points_dict
 
-    def precision_filter(self, sx_ear: float, dx_ear: float, timestamp_ms: int) -> None:
+    def _precision_filter(
+        self, sx_ear: float, dx_ear: float, timestamp_ms: int
+    ) -> None:
         ### Calcolo soglia dinamica
 
         if (
-            self.default_face_prospective is not None
-            and self.current_delta_prospective is not None
+            self._default_face_prospective is not None
+            and self._current_delta_prospective is not None
         ):
-            self.angular_delta = (
-                self.current_delta_prospective - self.default_face_prospective
+            self._angular_delta = (
+                self._current_delta_prospective - self._default_face_prospective
             )
 
             angular_delta_penality: float | None = None
-            if self.angular_delta < 0:
+            if self._angular_delta < 0:
                 angular_delta_penality = (
-                    0.7 * (self.angular_delta**2) * self.sensitivity_coefficient
+                    0.7 * (self._angular_delta**2) * self._sensitivity_coefficient
                 )
             else:
                 angular_delta_penality = (
-                    self.angular_delta**2 * self.sensitivity_coefficient
+                    self._angular_delta**2 * self._sensitivity_coefficient
                 )
 
-            self.current_left_ear_threshold = self.base_left_ear_threshold - (
+            self._current_left_ear_threshold = self._base_left_ear_threshold - (
                 angular_delta_penality
             )
-            self.current_right_ear_threshold = self.base_right_ear_threshold - (
+            self._current_right_ear_threshold = self._base_right_ear_threshold - (
                 angular_delta_penality
             )
 
             ### Clamping della soglia dinamica
-            self.current_left_ear_threshold = max(
-                self.left_eye_min_floor,
-                min(self.base_left_ear_threshold, self.current_left_ear_threshold),
+            self._current_left_ear_threshold = max(
+                self._left_eye_min_floor,
+                min(self._base_left_ear_threshold, self._current_left_ear_threshold),
             )
-            self.current_right_ear_threshold = max(
-                self.right_eye_min_floor,
-                min(self.base_right_ear_threshold, self.current_right_ear_threshold),
+            self._current_right_ear_threshold = max(
+                self._right_eye_min_floor,
+                min(self._base_right_ear_threshold, self._current_right_ear_threshold),
             )
 
         ### Filtro di precisione
-        left_eye_ratio: float = sx_ear / self.current_left_ear_threshold
-        right_eye_ratio: float = dx_ear / self.current_right_ear_threshold
+        left_eye_ratio: float = sx_ear / self._current_left_ear_threshold
+        right_eye_ratio: float = dx_ear / self._current_right_ear_threshold
 
         is_left_eye_closed: bool = left_eye_ratio < 1.0
         is_right_eye_closed: bool = right_eye_ratio < 1.0
@@ -317,9 +322,9 @@ class BlinkDetector:
         current_action: ActionType | None = None
 
         if are_both_eyes_closed:
-            if (right_eye_ratio - left_eye_ratio) > self.ear_diff_ratio:
+            if (right_eye_ratio - left_eye_ratio) > self._ear_diff_ratio:
                 current_action = ActionType.LEFT
-            elif (left_eye_ratio - right_eye_ratio) > self.ear_diff_ratio:
+            elif (left_eye_ratio - right_eye_ratio) > self._ear_diff_ratio:
                 current_action = ActionType.RIGHT
             else:
                 current_action = ActionType.BOTH
@@ -332,42 +337,44 @@ class BlinkDetector:
             else:
                 current_action = None
 
-        if self.blink_time_counter is None:
-            self.blink_time_counter = timestamp_ms
+        if self._blink_time_counter is None:
+            self._blink_time_counter = timestamp_ms
 
-        if current_action != self.last_action:
-            if self.last_action is not None:
+        if current_action != self._last_action:
+            if self._last_action is not None:
                 reopening_moment = timestamp_ms
-                blink_time: int = reopening_moment - self.blink_time_counter
+                blink_time: int = reopening_moment - self._blink_time_counter
 
                 if (
-                    self.min_blink_time_threshold
+                    self._min_blink_time_threshold
                     <= blink_time
-                    <= self.max_blink_time_threshold
+                    <= self._max_blink_time_threshold
                 ):
-                    if not self.actions and self.last_reopening_timestamp is None:
-                        self.actions.append((self.last_action, 0))
-                        self.last_reopening_timestamp = reopening_moment
+                    if not self._actions and self._last_reopening_timestamp is None:
+                        self._actions.append((self._last_action, 0))
+                        self._last_reopening_timestamp = reopening_moment
 
-                    elif self.last_reopening_timestamp is not None:
-                        lapse = self.blink_time_counter - self.last_reopening_timestamp
-                        if lapse > self.max_combo_delay:
-                            self.actions.clear()
-                            self.actions.append((self.last_action, 0))
-                            self.last_reopening_timestamp = reopening_moment
+                    elif self._last_reopening_timestamp is not None:
+                        lapse = (
+                            self._blink_time_counter - self._last_reopening_timestamp
+                        )
+                        if lapse > self._max_combo_delay:
+                            self._actions.clear()
+                            self._actions.append((self._last_action, 0))
+                            self._last_reopening_timestamp = reopening_moment
                         else:
-                            self.actions[-1] = (self.actions[-1][0], lapse)
-                            self.actions.append((self.last_action, 0))
-                            self.last_reopening_timestamp = reopening_moment
+                            self._actions[-1] = (self._actions[-1][0], lapse)
+                            self._actions.append((self._last_action, 0))
+                            self._last_reopening_timestamp = reopening_moment
 
                     # Chiamata a funzione di callback
                     if self.on_blink is not None:
-                        self.on_blink(self.actions)
+                        self.on_blink(self._actions)
 
-            self.last_action = current_action
-            self.blink_time_counter = None
+            self._last_action = current_action
+            self._blink_time_counter = None
 
-    def mediapipe_callback(
+    def _mediapipe_callback(
         self,
         result: vision.FaceLandmarkerResult,
         output_image: mp.Image,
@@ -397,48 +404,48 @@ class BlinkDetector:
         # Traduzione dei dizionari dei punti degli occhi in coordinate X, Y dei pixel sullo schermo
         left_eye_coordinates: dict[str, tuple[float, float]] = cast(
             dict[str, tuple[float, float]],
-            self.get_pixel_coordinates(
+            self._get_pixel_coordinates(
                 face_landmarks=face_landmarks,
                 frame_height=height,
                 frame_width=width,
-                points_dict=self.LEFT_EYE,
-                pixel_points_dict=self.pixelized_left_eye_dict,
+                points_dict=self._LEFT_EYE,
+                pixel_points_dict=self._pixelized_left_eye_dict,
             ),
         )
         right_eye_coordinates: dict[str, tuple[float, float]] = cast(
             dict[str, tuple[float, float]],
-            self.get_pixel_coordinates(
+            self._get_pixel_coordinates(
                 face_landmarks=face_landmarks,
                 frame_height=height,
                 frame_width=width,
-                points_dict=self.RIGHT_EYE,
-                pixel_points_dict=self.pixelized_right_eye_dict,
+                points_dict=self._RIGHT_EYE,
+                pixel_points_dict=self._pixelized_right_eye_dict,
             ),
         )
 
         # Calcolo dell'EAR per l'occhio Sinistro (prospettiva umana)
-        sx_ear: float = self.ear_math(
+        sx_ear: float = self._ear_math(
             eye_coordinates=left_eye_coordinates,
         )
 
         # Calcolo dell'EAR per l'occhio Destro (prospettiva umana)
-        dx_ear: float = self.ear_math(
+        dx_ear: float = self._ear_math(
             eye_coordinates=right_eye_coordinates,
         )
 
         orientation_coordinates: dict[str, tuple[float, float, float]] = cast(
             dict[str, tuple[float, float, float]],
-            self.get_pixel_coordinates(
+            self._get_pixel_coordinates(
                 face_landmarks=face_landmarks,
                 frame_height=height,
                 frame_width=width,
-                points_dict=self.ORIENTATION_REFERENCES,
-                pixel_points_dict=self.pixelized_orientation_references_dict,
+                points_dict=self._ORIENTATION_REFERENCES,
+                pixel_points_dict=self._pixelized_orientation_references_dict,
                 is_face_orientation=True,
             ),
         )
 
-        self.current_delta_prospective = (
+        self._current_delta_prospective = (
             orientation_coordinates["chin"][2] - orientation_coordinates["forehead"][2]
         ) / dist(
             orientation_coordinates["left_corner"],
@@ -447,25 +454,25 @@ class BlinkDetector:
 
         # Se la calibrazione è impostata su True allora avvia la calibrazione,
         # altrimenti continua filtrando le gesture e chiamando funzioni di callback
-        if self.is_calibrating:
+        if self._is_calibrating:
             self.calibration(sx_ear=sx_ear, dx_ear=dx_ear, timestamp_ms=timestamp_ms)
         else:
-            self.precision_filter(
+            self._precision_filter(
                 sx_ear=sx_ear, dx_ear=dx_ear, timestamp_ms=timestamp_ms
             )
 
         telemetry_dict: dict[str, float] = {
             "sx_eye_EAR": sx_ear,
             "dx_eye_EAR": dx_ear,
-            "sx_eye_EAR_THRESHOLD": self.current_left_ear_threshold,
-            "dx_eye_EAR_THRESHOLD": self.current_right_ear_threshold,
-            "face_pitch": self.angular_delta,
+            "sx_eye_EAR_THRESHOLD": self._current_left_ear_threshold,
+            "dx_eye_EAR_THRESHOLD": self._current_right_ear_threshold,
+            "face_pitch": self._angular_delta,
         }
 
         if self.telemetry_callback is not None:
             self.telemetry_callback(telemetry_dict)
 
-    def ear_math(
+    def _ear_math(
         self,
         eye_coordinates: dict[str, tuple[float, float]],
     ) -> float:
@@ -502,47 +509,49 @@ class BlinkDetector:
             dx_ear (float): The current EAR for the right eye.
             timestamp_ms (int): The current frame timestamp in milliseconds.
         """
-        if self.calib_start_time is None:
-            self.calib_start_time = timestamp_ms
+        if self._calib_start_time is None:
+            self._calib_start_time = timestamp_ms
             log.info(
                 "Inizio calibrazione: Guarda la telecamera con espressione neutra per 3 secondi.\n"
             )
 
-        self.sum_left_ear += sx_ear
-        self.sum_right_ear += dx_ear
+        self._sum_left_ear += sx_ear
+        self._sum_right_ear += dx_ear
 
-        if self.current_delta_prospective is not None:
-            self.delta_prospective_acc += self.current_delta_prospective
+        if self._current_delta_prospective is not None:
+            self._delta_prospective_acc += self._current_delta_prospective
 
-        self.count_ear += 1
+        self._count_ear += 1
 
-        time_elapsed: int = timestamp_ms - self.calib_start_time
+        time_elapsed: int = timestamp_ms - self._calib_start_time
 
         if time_elapsed >= 3000:
-            AVG_LEFT_EAR: float = self.sum_left_ear / self.count_ear
-            AVG_RIGHT_EAR: float = self.sum_right_ear / self.count_ear
+            AVG_LEFT_EAR: float = self._sum_left_ear / self._count_ear
+            AVG_RIGHT_EAR: float = self._sum_right_ear / self._count_ear
 
-            LEFT_EAR_THRESHOLD: float = AVG_LEFT_EAR * self.calibration_threshold_ratio
+            LEFT_EAR_THRESHOLD: float = AVG_LEFT_EAR * self._calibration_threshold_ratio
             RIGHT_EAR_THRESHOLD: float = (
-                AVG_RIGHT_EAR * self.calibration_threshold_ratio
+                AVG_RIGHT_EAR * self._calibration_threshold_ratio
             )
 
-            self.is_calibrating = False
-            self.calib_start_time = None
+            self._is_calibrating = False
+            self._calib_start_time = None
 
-            self.default_face_prospective = self.delta_prospective_acc / self.count_ear
+            self._default_face_prospective = (
+                self._delta_prospective_acc / self._count_ear
+            )
 
-            self.base_left_ear_threshold = LEFT_EAR_THRESHOLD
-            self.base_right_ear_threshold = RIGHT_EAR_THRESHOLD
+            self._base_left_ear_threshold = LEFT_EAR_THRESHOLD
+            self._base_right_ear_threshold = RIGHT_EAR_THRESHOLD
 
             if self.on_calibration is not None:
                 self.on_calibration(LEFT_EAR_THRESHOLD, RIGHT_EAR_THRESHOLD)
 
-                self.left_eye_min_floor = (
-                    self.base_left_ear_threshold * self.min_floor_ratio
+                self._left_eye_min_floor = (
+                    self._base_left_ear_threshold * self._min_floor_ratio
                 )
-                self.right_eye_min_floor = (
-                    self.base_right_ear_threshold * self.min_floor_ratio
+                self._right_eye_min_floor = (
+                    self._base_right_ear_threshold * self._min_floor_ratio
                 )
 
     def _execution_loop(
@@ -558,33 +567,35 @@ class BlinkDetector:
             mode (str): Operational mode. Use "calibrate" for threshold calibration or "detect" for gesture recognition.
             camera_config (CameraConfig | None): Custom camera configuration. If None, default 720p 30fps config is used.
         """
-        self.is_running = True
+        self._is_running = True
 
         # Impostazioni del modello di Landmarking facciale
         BaseOptions = py.BaseOptions
         FaceLandmarkerOptions = vision.FaceLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=self.model_path),
+            base_options=BaseOptions(model_asset_path=self._model_path),
             running_mode=vision.RunningMode.LIVE_STREAM,
             num_faces=1,
-            result_callback=self.mediapipe_callback,
+            result_callback=self._mediapipe_callback,
         )
         FaceLandmarker = vision.FaceLandmarker
 
-        self.face_landmarker = FaceLandmarker.create_from_options(FaceLandmarkerOptions)
+        self._face_landmarker = FaceLandmarker.create_from_options(
+            FaceLandmarkerOptions
+        )
 
         match mode:
             case "calibrate":
-                self.is_calibrating = True
-                self.calib_start_time = None
+                self._is_calibrating = True
+                self._calib_start_time = None
 
-                self.sum_left_ear = 0.0
-                self.sum_right_ear = 0.0
-                self.count_ear = 0
-                self.delta_prospective_acc = 0.0
+                self._sum_left_ear = 0.0
+                self._sum_right_ear = 0.0
+                self._count_ear = 0
+                self._delta_prospective_acc = 0.0
 
                 log.info("Avvio telecamera in modalità CALIBRAZIONE.")
             case _:
-                self.is_calibrating = False
+                self._is_calibrating = False
                 log.info("Avvio telecamera in modalità RILEVAMENTO.")
 
         if camera_config is None:
@@ -592,7 +603,7 @@ class BlinkDetector:
 
         video: cv.VideoCapture = camera_config.set_camera()
 
-        while self.is_running:
+        while self._is_running:
             status, frame = video.read()
 
             if not status:
@@ -601,12 +612,12 @@ class BlinkDetector:
 
             rgb_frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
 
-            self.frame_preparation(rgb=rgb_frame)
+            self._frame_preparation(rgb=rgb_frame)
 
-            if mode == "calibrate" and self.is_calibrating is False:
+            if mode == "calibrate" and self._is_calibrating is False:
                 break
 
-        self.face_landmarker.close()
+        self._face_landmarker.close()
         video.release()
 
     def start(
@@ -621,7 +632,7 @@ class BlinkDetector:
             mode (str): Operational mode. Use "calibrate" for threshold calibration or "detect" for gesture recognition.
             camera_config (CameraConfig | None): Custom camera configuration. If None, default 720p 30fps config is used.
         """
-        self.ogm_thread = threading.Thread(
+        self._ogm_thread = threading.Thread(
             target=self._execution_loop, args=(mode, camera_config), daemon=True
         )
-        self.ogm_thread.start()
+        self._ogm_thread.start()
