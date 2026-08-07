@@ -33,8 +33,14 @@ from typing import ClassVar, cast
 
 import cv2 as cv
 import mediapipe as mp
+from cv2.typing import MatLike
 from mediapipe.tasks import python as py
-from mediapipe.tasks.python import vision
+from mediapipe.tasks.python.vision import RunningMode
+from mediapipe.tasks.python.vision.face_landmarker import (
+    FaceLandmarker,
+    FaceLandmarkerOptions,
+    FaceLandmarkerResult,
+)
 
 from .camera_config import CameraConfig
 
@@ -188,7 +194,7 @@ class BlinkDetector:
         self._calib_start_time: int | None = None
 
         # Face landmarker configuration
-        self._face_landmarker: vision.FaceLandmarker | None = None
+        self._face_landmarker: FaceLandmarker | None = None
 
     def close(self) -> None:
         """
@@ -207,7 +213,7 @@ class BlinkDetector:
         self._actions.clear()
         self._last_reopening_timestamp = None
 
-    def _frame_preparation(self, rgb) -> None:
+    def _frame_preparation(self, rgb: MatLike) -> None:
         """
         Prepares the frame for MediaPipe processing by converting formats and managing timestamps.
 
@@ -233,7 +239,7 @@ class BlinkDetector:
 
     def _get_pixel_coordinates(
         self,
-        face_landmarks,
+        face_landmarks,  # pyright: ignore[reportMissingParameterType, reportUnknownParameterType]
         frame_height: int,
         frame_width: int,
         points_dict: dict[str, int],
@@ -376,7 +382,7 @@ class BlinkDetector:
 
     def _mediapipe_callback(
         self,
-        result: vision.FaceLandmarkerResult,
+        result: FaceLandmarkerResult,
         output_image: mp.Image,
         timestamp_ms: int,
     ) -> None:
@@ -570,17 +576,13 @@ class BlinkDetector:
         self._is_running = True
 
         # Impostazioni del modello di Landmarking facciale
-        BaseOptions = py.BaseOptions
-        FaceLandmarkerOptions = vision.FaceLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=self._model_path),
-            running_mode=vision.RunningMode.LIVE_STREAM,
-            num_faces=1,
-            result_callback=self._mediapipe_callback,
-        )
-        FaceLandmarker = vision.FaceLandmarker
-
         self._face_landmarker = FaceLandmarker.create_from_options(
-            FaceLandmarkerOptions
+            options=FaceLandmarkerOptions(
+                base_options=py.BaseOptions(model_asset_path=self._model_path),
+                running_mode=RunningMode.LIVE_STREAM,
+                num_faces=1,
+                result_callback=self._mediapipe_callback,
+            )
         )
 
         match mode:
@@ -610,7 +612,7 @@ class BlinkDetector:
                 log.error("Errore, impossibile trovare un fotogramma.")
                 break
 
-            rgb_frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+            rgb_frame: MatLike = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
 
             self._frame_preparation(rgb=rgb_frame)
 
