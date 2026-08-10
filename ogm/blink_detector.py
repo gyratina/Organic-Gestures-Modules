@@ -29,6 +29,7 @@ import time
 from collections.abc import Callable
 from enum import Enum
 from math import dist
+from queue import Queue
 from typing import ClassVar, cast
 
 import cv2 as cv
@@ -94,10 +95,10 @@ class BlinkDetector:
         min_blink_time_threshold: int = 80,
         max_blink_time_threshold: int = 500,
         max_combo_delay: int = 2000,
-        ear_diff_ratio: float = 0.03,
+        ear_diff_ratio: float = 0.20,
         model_path: str | None = None,
         calibration_threshold_ratio: float = 0.50,
-        sensitivity_coefficient: float = 0.4,
+        sensitivity_coefficient: float = 0.05,
     ) -> None:
         """
         Initializes the BlinkDetector with specific thresholds for gesture detection.
@@ -110,14 +111,31 @@ class BlinkDetector:
             max_combo_delay (int): Maximum delay (ms) allowed between consecutive blinks to be grouped into the same combo.
             ear_diff (float): Tolerance for EAR difference to avoid false asymmetrical blink triggers (e.g. skin pulling).
             model_path (str | None): Absolute path to the MediaPipe Face Landmarker model. If None, uses the bundled model.
-            calibration_threshold_ratio (float): Ratio applied to the calculated EAR average during calibration (default is 0.60).
+            calibration_threshold_ratio (float): Ratio applied to the calculated EAR average during calibration (default is 0.20).
             sensitivity_coefficient (float): Coefficient to adjust the sensivity of the dynamic threshold based on face pitch.
         """
         # Flag per indicare lo stato di esecuzione dell'API
         self._is_running: bool | None = None
 
-        # Salvataggio del thread per permettere al metodo close() di terminare l'esecuzione
+        # Coda Thread-Safe per passare le azioni al thread che chiama la callback on_action
+        self._actions_queue: Queue[tuple[tuple[ActionType, int], ...] | None] = Queue(
+            maxsize=1
+        )
+        self._telemetry_queue: Queue[dict[str, float] | None] = Queue(maxsize=1)
+
+        # Definizione del Lock Rientrante d'istanza
+        self._rlock: threading.RLock = threading.RLock()
+
+        # Definizione del thread del modulo
         self._ogm_thread: threading.Thread | None = None
+
+        # Definizione del thread che chiama la callback on_blink passandogli la copia
+        # immutabile (tupla) della lista delle azioni
+        self._actions_sentinel_thread: threading.Thread | None = None
+
+        # Definizione del thread che chiama la callback telemetry_callback in modo
+        # thread-safe
+        self._telemetry_sentinel_thread: threading.Thread | None = None
 
         # Soglie di apertura dell'occhio
         self._base_left_ear_threshold: float = base_left_ear_threshold
@@ -171,7 +189,9 @@ class BlinkDetector:
         self._blink_time_counter: int | None = None
 
         # Funzioni di callback
-        self.on_blink: Callable[[list[tuple[ActionType, int]]], None] | None = None
+        self.on_blink: Callable[[tuple[tuple[ActionType, int], ...]], None] | None = (
+            None
+        )
         self.on_calibration: Callable[[float, float], None] | None = None
         self.telemetry_callback: Callable[[dict[str, float]], None] | None = None
 
@@ -202,16 +222,37 @@ class BlinkDetector:
         This method will safely block (join) the calling thread until the background execution thread has completely terminated.
         """
         self._is_running = False
-        if self._ogm_thread is not None:
-            self._ogm_thread.join()
-        log.info("Esecuzione modulo API terminata.")
+        self._actions_queue.put(item=None)
+        self._telemetry_queue.put(item=None)
+
+        # Controllo dell'esistenza del thread e se è ancora in esecuzione
+        # Se non fosse in esecuzione sarebbe inutile fare il join
+        if self._ogm_thread is not None and self._ogm_thread.is_alive():
+            self._ogm_thread.join(timeout=2.0)
+
+        if (
+            self._actions_sentinel_thread is not None
+            and self._actions_sentinel_thread.is_alive()
+        ):
+            self._actions_sentinel_thread.join(timeout=2.0)
+            self._actions_queue = Queue(maxsize=1)
+
+        if (
+            self._telemetry_sentinel_thread is not None
+            and self._telemetry_sentinel_thread.is_alive()
+        ):
+            self._telemetry_sentinel_thread.join(timeout=2.0)
+            self._telemetry_queue = Queue(maxsize=1)
+
+        log.info("Esecuzione modulo di blinking terminata.")
 
     def reset_log(self) -> None:
         """
         Clears the logged actions and resets the combo timer. Usually called after a combo is successfully matched.
         """
-        self._actions.clear()
-        self._last_reopening_timestamp = None
+        with self._rlock:
+            self._actions.clear()
+            self._last_reopening_timestamp = None
 
     def _frame_preparation(self, rgb: MatLike) -> None:
         """
@@ -356,26 +397,33 @@ class BlinkDetector:
                     <= blink_time
                     <= self._max_blink_time_threshold
                 ):
-                    if not self._actions and self._last_reopening_timestamp is None:
-                        self._actions.append((self._last_action, 0))
-                        self._last_reopening_timestamp = reopening_moment
+                    with self._rlock:
+                        if not self._actions and self._last_reopening_timestamp is None:
+                            self._actions.append((self._last_action, 0))
+                            self._last_reopening_timestamp = reopening_moment
 
-                    elif self._last_reopening_timestamp is not None:
-                        lapse = (
-                            self._blink_time_counter - self._last_reopening_timestamp
+                        elif self._last_reopening_timestamp is not None:
+                            lapse = (
+                                self._blink_time_counter
+                                - self._last_reopening_timestamp
+                            )
+                            if lapse > self._max_combo_delay:
+                                self._actions.clear()
+                                self._actions.append((self._last_action, 0))
+                                self._last_reopening_timestamp = reopening_moment
+                            else:
+                                self._actions[-1] = (self._actions[-1][0], lapse)
+                                self._actions.append((self._last_action, 0))
+                                self._last_reopening_timestamp = reopening_moment
+
+                        # Creazione copia (snapshot) immutabile (tuple) della lista _actions
+                        snapshot: tuple[tuple[ActionType, int], ...] = tuple(
+                            self._actions
                         )
-                        if lapse > self._max_combo_delay:
-                            self._actions.clear()
-                            self._actions.append((self._last_action, 0))
-                            self._last_reopening_timestamp = reopening_moment
-                        else:
-                            self._actions[-1] = (self._actions[-1][0], lapse)
-                            self._actions.append((self._last_action, 0))
-                            self._last_reopening_timestamp = reopening_moment
 
-                    # Chiamata a funzione di callback
-                    if self.on_blink is not None:
-                        self.on_blink(self._actions)
+                    # Passaggio dello snapshot di _actions alla coda thread-safe che chiama la
+                    # callback su un thread separato
+                    self._actions_queue.put(item=snapshot)
 
             self._last_action = current_action
             self._blink_time_counter = None
@@ -476,7 +524,7 @@ class BlinkDetector:
         }
 
         if self.telemetry_callback is not None:
-            self.telemetry_callback(telemetry_dict)
+            self._telemetry_queue.put(item=telemetry_dict)
 
     def _ear_math(
         self,
@@ -550,15 +598,36 @@ class BlinkDetector:
             self._base_left_ear_threshold = LEFT_EAR_THRESHOLD
             self._base_right_ear_threshold = RIGHT_EAR_THRESHOLD
 
+            self._left_eye_min_floor = (
+                self._base_left_ear_threshold * self._min_floor_ratio
+            )
+            self._right_eye_min_floor = (
+                self._base_right_ear_threshold * self._min_floor_ratio
+            )
+
             if self.on_calibration is not None:
                 self.on_calibration(LEFT_EAR_THRESHOLD, RIGHT_EAR_THRESHOLD)
 
-                self._left_eye_min_floor = (
-                    self._base_left_ear_threshold * self._min_floor_ratio
-                )
-                self._right_eye_min_floor = (
-                    self._base_right_ear_threshold * self._min_floor_ratio
-                )
+    def _actions_sentinel(self) -> None:
+        while self._is_running:
+            actions: tuple[tuple[ActionType, int], ...] | None = (
+                self._actions_queue.get()
+            )
+            if actions is None:
+                break
+
+            if self.on_blink is not None:
+                self.on_blink(actions)
+
+    def _telemetry_sentinel(self) -> None:
+        while self._is_running:
+            telemetry_dict: dict[str, float] | None = self._telemetry_queue.get()
+
+            if telemetry_dict is None:
+                break
+
+            if self.telemetry_callback is not None:
+                self.telemetry_callback(telemetry_dict)
 
     def _execution_loop(
         self, mode: str = "detect", camera_config: CameraConfig | None = None
@@ -573,7 +642,6 @@ class BlinkDetector:
             mode (str): Operational mode. Use "calibrate" for threshold calibration or "detect" for gesture recognition.
             camera_config (CameraConfig | None): Custom camera configuration. If None, default 720p 30fps config is used.
         """
-        self._is_running = True
 
         # Impostazioni del modello di Landmarking facciale
         self._face_landmarker = FaceLandmarker.create_from_options(
@@ -584,21 +652,6 @@ class BlinkDetector:
                 result_callback=self._mediapipe_callback,
             )
         )
-
-        match mode:
-            case "calibrate":
-                self._is_calibrating = True
-                self._calib_start_time = None
-
-                self._sum_left_ear = 0.0
-                self._sum_right_ear = 0.0
-                self._count_ear = 0
-                self._delta_prospective_acc = 0.0
-
-                log.info("Avvio telecamera in modalità CALIBRAZIONE.")
-            case _:
-                self._is_calibrating = False
-                log.info("Avvio telecamera in modalità RILEVAMENTO.")
 
         if camera_config is None:
             camera_config = CameraConfig()
@@ -634,7 +687,60 @@ class BlinkDetector:
             mode (str): Operational mode. Use "calibrate" for threshold calibration or "detect" for gesture recognition.
             camera_config (CameraConfig | None): Custom camera configuration. If None, default 720p 30fps config is used.
         """
+        if self._is_running:
+            log.error("The module has already been started.")
+            return
+
+        match mode:
+            case "calibrate":
+                if self.on_calibration is None:
+                    log.error(
+                        'The "on_calibration" callback function has not been defined before start.'
+                    )
+                    return
+
+                self._is_running = True
+                self._is_calibrating = True
+                self._calib_start_time = None
+
+                self._sum_left_ear = 0.0
+                self._sum_right_ear = 0.0
+                self._count_ear = 0
+                self._delta_prospective_acc = 0.0
+
+                log.info("Avvio telecamera in modalità CALIBRAZIONE.")
+
+            case _:
+                if self.on_blink is None:
+                    log.error(
+                        'The "on_blink" callback function has not been defined before start.'
+                    )
+                    return
+
+                self._is_running = True
+                self._is_calibrating = False
+                self._actions_queue = Queue(maxsize=1)
+
+                self._actions_sentinel_thread = threading.Thread(
+                    target=self._actions_sentinel, daemon=True
+                )
+                self._actions_sentinel_thread.start()
+
+                log.info("Avvio telecamera in modalità RILEVAMENTO.")
+
+        if self.telemetry_callback is not None:
+            self._telemetry_queue = Queue(maxsize=1)
+
+            self._telemetry_sentinel_thread = threading.Thread(
+                target=self._telemetry_sentinel, daemon=True
+            )
+            self._telemetry_sentinel_thread.start()
+        else:
+            log.info("Telemetry functionalities are disabled.")
+
         self._ogm_thread = threading.Thread(
             target=self._execution_loop, args=(mode, camera_config), daemon=True
         )
+
+        # Viene fatto partire prima il thread delle azioni per evitare di perdere eventuali prime azioni
         self._ogm_thread.start()
