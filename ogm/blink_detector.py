@@ -134,10 +134,8 @@ class BlinkDetector:
         self._is_running: bool | None = None
 
         # Coda Thread-Safe per passare le azioni al thread che chiama la callback on_action
-        self._actions_queue: Queue[tuple[tuple[ActionType, int], ...] | None] = Queue(
-            maxsize=1
-        )
-        self._telemetry_queue: Queue[dict[str, float] | None] = Queue(maxsize=1)
+        self._actions_queue: Queue[tuple[tuple[ActionType, int], ...] | None] = Queue()
+        self._telemetry_queue: Queue[dict[str, float] | None] = Queue()
 
         # Definizione del Lock Rientrante d'istanza
         self._rlock: threading.RLock = threading.RLock()
@@ -254,14 +252,14 @@ class BlinkDetector:
             and self._actions_sentinel_thread.is_alive()
         ):
             self._actions_sentinel_thread.join(timeout=2.0)
-            self._actions_queue = Queue(maxsize=1)
+            self._actions_queue = Queue()
 
         if (
             self._telemetry_sentinel_thread is not None
             and self._telemetry_sentinel_thread.is_alive()
         ):
             self._telemetry_sentinel_thread.join(timeout=2.0)
-            self._telemetry_queue = Queue(maxsize=1)
+            self._telemetry_queue = Queue()
 
         log.info("Esecuzione modulo di blinking terminata.")
 
@@ -798,7 +796,7 @@ class BlinkDetector:
 
                 self._is_running = True
                 self._is_calibrating = False
-                self._actions_queue = Queue(maxsize=1)
+                self._actions_queue = Queue()
 
                 self._actions_sentinel_thread = threading.Thread(
                     target=self._actions_sentinel, daemon=True
@@ -808,7 +806,7 @@ class BlinkDetector:
                 log.info("Avvio telecamera in modalità RILEVAMENTO.")
 
         if self.telemetry_callback is not None:
-            self._telemetry_queue = Queue(maxsize=1)
+            self._telemetry_queue = Queue()
 
             self._telemetry_sentinel_thread = threading.Thread(
                 target=self._telemetry_sentinel, daemon=True
