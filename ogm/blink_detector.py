@@ -51,6 +51,11 @@ log: logging.Logger = logging.getLogger(f"OGM.{__name__}")
 class ActionType(Enum):
     """
     Enumeration representing the different types of detected ocular gestures.
+
+    Members:
+        LEFT (int): Voluntary blink of the left eye (human perspective).
+        RIGHT (int): Voluntary blink of the right eye (human perspective).
+        BOTH (int): Simultaneous voluntary blink of both eyes.
     """
 
     LEFT = 0
@@ -60,8 +65,19 @@ class ActionType(Enum):
 
 class BlinkDetector:
     """
-    Core detector class that processes frames to identify and record voluntary ocular gestures (blinks).
-    Supports single eye and both eyes gestures, featuring a state-machine based precision filter.
+    Core detector class that processes camera frames to identify and record voluntary ocular gestures.
+
+    Features a state-machine precision filter, monocular vs binocular blink differentiation
+    handling skin-pull effects (`ear_diff_ratio`), dynamic threshold scaling based on head pitch
+    estimation, automatic 3-second calibration mode, and thread-safe asynchronous sentinel callbacks.
+
+    Attributes:
+        on_blink (Callable[[tuple[tuple[ActionType, int], ...]], None] | None): Callback executed when
+            a valid blink sequence is recognized. Receives an immutable tuple of `(ActionType, pause_ms)`.
+        on_calibration (Callable[[float, float], None] | None): Callback executed upon completing
+            automatic calibration. Receives `(left_ear_threshold, right_ear_threshold)`.
+        telemetry_callback (Callable[[dict[str, float]], None] | None): Callback executed on every frame
+            when telemetry is enabled. Receives frame metrics (EAR values, thresholds, head pitch).
     """
 
     _LEFT_EYE: ClassVar[dict[str, int]] = {
@@ -101,18 +117,18 @@ class BlinkDetector:
         sensitivity_coefficient: float = 0.05,
     ) -> None:
         """
-        Initializes the BlinkDetector with specific thresholds for gesture detection.
+        Initializes the BlinkDetector with specific parameters for gesture recognition and threshold adaptation.
 
         Args:
-            left_ear_threshold (float): EAR threshold to consider the left eye closed.
-            right_ear_threshold (float): EAR threshold to consider the right eye closed.
-            min_blink_time_threshold (int): Minimum duration (ms) for a closure to be considered a voluntary blink.
-            max_blink_time_threshold (int): Maximum duration (ms) for a closure to be considered a voluntary blink.
-            max_combo_delay (int): Maximum delay (ms) allowed between consecutive blinks to be grouped into the same combo.
-            ear_diff (float): Tolerance for EAR difference to avoid false asymmetrical blink triggers (e.g. skin pulling).
-            model_path (str | None): Absolute path to the MediaPipe Face Landmarker model. If None, uses the bundled model.
-            calibration_threshold_ratio (float): Ratio applied to the calculated EAR average during calibration (default is 0.20).
-            sensitivity_coefficient (float): Coefficient to adjust the sensivity of the dynamic threshold based on face pitch.
+            base_left_ear_threshold (float): Baseline EAR threshold below which the left eye is considered closed (default: 0.16).
+            base_right_ear_threshold (float): Baseline EAR threshold below which the right eye is considered closed (default: 0.16).
+            min_blink_time_threshold (int): Minimum eye closure duration in ms to qualify as a voluntary blink (default: 80).
+            max_blink_time_threshold (int): Maximum eye closure duration in ms to qualify as a voluntary blink (default: 500).
+            max_combo_delay (int): Maximum inter-blink delay in ms permitted before resetting the logged combo sequence (default: 2000).
+            ear_diff_ratio (float): Relative EAR closure difference threshold to distinguish monocular winks from binocular blinks (default: 0.20).
+            model_path (str | None): Absolute path to the MediaPipe `face_landmarker.task` model file. If None, uses the bundled model asset.
+            calibration_threshold_ratio (float): Ratio applied to average open-eye EAR observed during 3s calibration (default: 0.50).
+            sensitivity_coefficient (float): Coefficient scaling the dynamic EAR threshold penalty based on face pitch angle deviation (default: 0.05).
         """
         # Flag per indicare lo stato di esecuzione dell'API
         self._is_running: bool | None = None
@@ -218,8 +234,11 @@ class BlinkDetector:
 
     def close(self) -> None:
         """
-        Signals the internal execution loop to stop, which will smoothly release the camera and MediaPipe resources.
-        This method will safely block (join) the calling thread until the background execution thread has completely terminated.
+        Signals background threads to stop and cleanly releases OpenCV and MediaPipe resources.
+
+        Pushes termination sentinels (`None`) to internal queues, then safely blocks (joins) the calling
+        thread for up to 2.0 seconds per background thread (`_ogm_thread`, `_actions_sentinel_thread`,
+        and `_telemetry_sentinel_thread`) to prevent thread leakage and segmentation faults.
         """
         self._is_running = False
         self._actions_queue.put(item=None)
@@ -248,7 +267,10 @@ class BlinkDetector:
 
     def reset_log(self) -> None:
         """
-        Clears the logged actions and resets the combo timer. Usually called after a combo is successfully matched.
+        Clears the logged action sequence buffer and resets inter-blink combo timers.
+
+        Acquires the internal reentrant lock (`_rlock`) to ensure thread-safe clearing of `_actions`
+        and resetting of `_last_reopening_timestamp`. Typically invoked after matching a desired combo.
         """
         with self._rlock:
             self._actions.clear()
@@ -256,11 +278,13 @@ class BlinkDetector:
 
     def _frame_preparation(self, rgb: MatLike) -> None:
         """
-        Prepares the frame for MediaPipe processing by converting formats and managing timestamps.
+        Formats an RGB frame for MediaPipe processing and submits it asynchronously.
+
+        Wraps `rgb` into an `mp.Image` container, ensures frame timestamps (`frame_timestamp_ms`) are
+        monotonically increasing to prevent MediaPipe timestamp errors, and invokes `detect_async`.
 
         Args:
-            frame: The original BGR frame captured by OpenCV.
-            rgb: The converted RGB frame to be used by MediaPipe.
+            rgb (MatLike): The frame image formatted in RGB color space.
         """
 
         ### Fase di preparazione dati
@@ -287,6 +311,21 @@ class BlinkDetector:
         pixel_points_dict: dict[str, tuple[float, ...]],
         is_face_orientation: bool = False,
     ) -> dict[str, tuple[float, ...]]:
+        """
+        Converts normalized MediaPipe landmark coordinates [0.0, 1.0] into screen pixel coordinates.
+
+        Args:
+            face_landmarks: Normalized landmarks list returned by MediaPipe FaceLandmarker for a detected face.
+            frame_height (int): Height of the captured video frame in pixels.
+            frame_width (int): Width of the captured video frame in pixels.
+            points_dict (dict[str, int]): Dictionary mapping landmark key names to MediaPipe mesh indices.
+            pixel_points_dict (dict[str, tuple[float, ...]]): Target dictionary updated in-place with pixel coordinates.
+            is_face_orientation (bool): If True, computes 3D coordinates `(x*W, y*H, z*W)` for pitch calculations.
+                If False, computes 2D coordinates `(x*W, y*H)`.
+
+        Returns:
+            dict[str, tuple[float, ...]]: Updated dictionary mapping landmark keys to 2D or 3D pixel coordinate tuples.
+        """
 
         if not is_face_orientation:
             for key, index in points_dict.items():
@@ -318,6 +357,21 @@ class BlinkDetector:
     def _precision_filter(
         self, sx_ear: float, dx_ear: float, timestamp_ms: int
     ) -> None:
+        """
+        Evaluates frame EAR values against dynamic thresholds, state-machine closure timing, and combo logic.
+
+        Computes face pitch angle penalties to dynamically lower EAR thresholds (`_current_left_ear_threshold`,
+        `_current_right_ear_threshold`), enforces minimum floor clamping, classifies current eye state
+        (LEFT, RIGHT, BOTH) taking `ear_diff_ratio` into account for skin-pull tolerance, filters voluntary
+        blink durations (`min_blink_time_threshold` to `max_blink_time_threshold`), updates action history
+        with inter-blink pause intervals (`lapse` vs `max_combo_delay`), and pushes action sequence snapshots
+        to `_actions_queue`.
+
+        Args:
+            sx_ear (float): Calculated Eye Aspect Ratio for the left eye.
+            dx_ear (float): Calculated Eye Aspect Ratio for the right eye.
+            timestamp_ms (int): Current frame timestamp in milliseconds.
+        """
         ### Calcolo soglia dinamica
 
         if (
@@ -435,14 +489,16 @@ class BlinkDetector:
         timestamp_ms: int,
     ) -> None:
         """
-        Callback invoked by MediaPipe for every processed frame.
-        Handles coordinate extraction, dynamic threshold adjustments via pitch estimation,
-        and delegates to the precision filter or calibration method.
+        MediaPipe `detect_async` callback invoked for every analyzed frame.
+
+        Extracts face landmarks, calculates left (`sx_ear`) and right (`dx_ear`) eye aspect ratios,
+        computes relative face pitch ratio `(z_chin - z_forehead) / dist(left_corner, right_corner)`,
+        routes execution to `calibration` or `_precision_filter`, and puts telemetry metadata into `_telemetry_queue`.
 
         Args:
-            result (vision.FaceLandmarkerResult): The face landmark detection results.
-            output_image (mp.Image): The image processed by MediaPipe.
-            timestamp_ms (int): The timestamp of the processed frame.
+            result (FaceLandmarkerResult): Landmarks detection result returned by MediaPipe.
+            output_image (mp.Image): Image container processed by MediaPipe.
+            timestamp_ms (int): Monotonic frame timestamp in milliseconds.
         """
 
         # Controllo se la telecamera ha trovato almeno un volto
@@ -477,12 +533,12 @@ class BlinkDetector:
             ),
         )
 
-        # Calcolo dell'EAR per l'occhio Sinistro (prospettiva umana)
+        # Calcolo dell'EAR per l'occhio Sinistro (prospettiva humana)
         sx_ear: float = self._ear_math(
             eye_coordinates=left_eye_coordinates,
         )
 
-        # Calcolo dell'EAR per l'occhio Destro (prospettiva umana)
+        # Calcolo dell'EAR per l'occhio Destro (prospettiva humana)
         dx_ear: float = self._ear_math(
             eye_coordinates=right_eye_coordinates,
         )
@@ -531,13 +587,17 @@ class BlinkDetector:
         eye_coordinates: dict[str, tuple[float, float]],
     ) -> float:
         """
-        Calculates the Eye Aspect Ratio (EAR) based on the 6 facial landmarks defining an eye.
+        Calculates the Eye Aspect Ratio (EAR) from 6 landmark screen pixel coordinates.
+
+        Implements the Soukupová Eye Aspect Ratio formula:
+        `EAR = (dist(P2, P6) + dist(P3, P5)) / (2 * dist(P1, P4))`
 
         Args:
-            eye_coordinates (dict): A dictionary mapping 'P1' through 'P6' to numpy coordinate arrays.
+            eye_coordinates (dict[str, tuple[float, float]]): Mapping of landmark keys ('P1' through 'P6')
+                to 2D screen pixel coordinate tuples `(x, y)`.
 
         Returns:
-            float: The computed EAR value for the given eye.
+            float: The computed non-dimensional EAR value for the specified eye.
         """
         # Aliases
         P1 = eye_coordinates["P1"]
@@ -556,12 +616,16 @@ class BlinkDetector:
 
     def calibration(self, sx_ear: float, dx_ear: float, timestamp_ms: int) -> None:
         """
-        Calibrates the base EAR thresholds and default face pitch (prospective) over a 3-second period.
+        Executes baseline EAR threshold and default face pitch calibration over a 3-second (3000 ms) window.
+
+        Accumulates open-eye EAR metrics and pitch ratios, calculates open-eye averages after 3000 ms,
+        computes baseline closure thresholds (`AVG_EAR * calibration_threshold_ratio`), initializes minimum threshold
+        floors, updates `_default_face_prospective`, disables calibration mode, and triggers `on_calibration`.
 
         Args:
-            sx_ear (float): The current EAR for the left eye.
-            dx_ear (float): The current EAR for the right eye.
-            timestamp_ms (int): The current frame timestamp in milliseconds.
+            sx_ear (float): Instantaneous EAR for the left eye.
+            dx_ear (float): Instantaneous EAR for the right eye.
+            timestamp_ms (int): Current frame timestamp in milliseconds.
         """
         if self._calib_start_time is None:
             self._calib_start_time = timestamp_ms
@@ -609,6 +673,12 @@ class BlinkDetector:
                 self.on_calibration(LEFT_EAR_THRESHOLD, RIGHT_EAR_THRESHOLD)
 
     def _actions_sentinel(self) -> None:
+        """
+        Sentinel worker thread loop for invoking the `on_blink` callback asynchronously.
+
+        Continuously pops action sequence snapshots from `_actions_queue` and dispatches them to `on_blink`
+        until a `None` sentinel item is received when stopping.
+        """
         while self._is_running:
             actions: tuple[tuple[ActionType, int], ...] | None = (
                 self._actions_queue.get()
@@ -620,6 +690,12 @@ class BlinkDetector:
                 self.on_blink(actions)
 
     def _telemetry_sentinel(self) -> None:
+        """
+        Sentinel worker thread loop for invoking `telemetry_callback` asynchronously.
+
+        Continuously pops telemetry metric dictionaries from `_telemetry_queue` and dispatches them to
+        `telemetry_callback` until a `None` sentinel item is received when stopping.
+        """
         while self._is_running:
             telemetry_dict: dict[str, float] | None = self._telemetry_queue.get()
 
@@ -633,10 +709,11 @@ class BlinkDetector:
         self, mode: str = "detect", camera_config: CameraConfig | None = None
     ) -> None:
         """
-        Internal method that runs the camera loop and processes frames synchronously.
-        This is automatically executed in a background daemon thread by start().
-        It initializes the MediaPipe FaceLandmarker natively within this thread to ensure memory safety
-        and avoid threading issues upon restart, and resets calibration accumulators to prevent stale data.
+        Main execution loop running video capture and MediaPipe landmark detection in a daemon thread.
+
+        Instantiates `FaceLandmarker` natively within the thread context to ensure thread memory safety,
+        opens the camera via `camera_config.set_camera()`, loops through captured frames while `_is_running`
+        is True, and releases OpenCV and MediaPipe resources upon loop exit or calibration completion.
 
         Args:
             mode (str): Operational mode. Use "calibrate" for threshold calibration or "detect" for gesture recognition.
@@ -679,9 +756,11 @@ class BlinkDetector:
         self, mode: str = "detect", camera_config: CameraConfig | None = None
     ) -> None:
         """
-        Starts the gesture detection asynchronously in a background daemon thread.
-        Does not block the main thread. The thread instance is saved in `self.ogm_thread`
-        so it can be properly joined by the `close()` method to prevent segmentation faults.
+        Starts gesture detection or calibration asynchronously in a background daemon thread.
+
+        Validates required callbacks (`on_calibration` for "calibrate" mode, `on_blink` for "detect" mode),
+        initializes communication queues, launches sentinel threads (`_actions_sentinel_thread`,
+        `_telemetry_sentinel_thread`), and spawns `self._ogm_thread` running `_execution_loop`.
 
         Args:
             mode (str): Operational mode. Use "calibrate" for threshold calibration or "detect" for gesture recognition.
