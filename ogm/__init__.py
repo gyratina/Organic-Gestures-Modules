@@ -25,4 +25,4 @@
 from .blink_detector import ActionType, BlinkDetector
 from .camera_config import CameraConfig
 
-__all__ = ["BlinkDetector", "ActionType", "CameraConfig"]
+__all__ = ["ActionType", "BlinkDetector", "CameraConfig"]
