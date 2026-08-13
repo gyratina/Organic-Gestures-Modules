@@ -353,7 +353,7 @@ class BlinkDetector:
         return pixel_points_dict
 
     def _precision_filter(
-        self, sx_ear: float, dx_ear: float, timestamp_ms: int
+        self, SX_EAR: float, DX_EAR: float, timestamp_ms: int
     ) -> None:
         """
         Evaluates frame EAR values against dynamic thresholds, state-machine closure timing, and combo logic.
@@ -408,18 +408,17 @@ class BlinkDetector:
             )
 
         ### Filtro di precisione
-        left_eye_ratio: float = sx_ear / self._current_left_ear_threshold
-        right_eye_ratio: float = dx_ear / self._current_right_ear_threshold
+        left_eye_ratio: float = SX_EAR / self._current_left_ear_threshold
+        right_eye_ratio: float = DX_EAR / self._current_right_ear_threshold
 
-        is_left_eye_closed: bool = left_eye_ratio < 1.0
-        is_right_eye_closed: bool = right_eye_ratio < 1.0
+        is_left_eye_closed: bool = left_eye_ratio <= 1.0
+        is_right_eye_closed: bool = right_eye_ratio <= 1.0
         are_both_eyes_closed: bool = is_left_eye_closed and is_right_eye_closed
 
         reopening_moment: int | None = None
         lapse: int | None = None
 
         current_action: ActionType | None = None
-
         if are_both_eyes_closed:
             if (right_eye_ratio - left_eye_ratio) > self._ear_diff_ratio:
                 current_action = ActionType.LEFT
@@ -532,12 +531,12 @@ class BlinkDetector:
         )
 
         # Calcolo dell'EAR per l'occhio Sinistro (prospettiva humana)
-        sx_ear: float = self._ear_math(
+        SX_EAR: float = self._ear_math(
             eye_coordinates=left_eye_coordinates,
         )
 
         # Calcolo dell'EAR per l'occhio Destro (prospettiva humana)
-        dx_ear: float = self._ear_math(
+        DX_EAR: float = self._ear_math(
             eye_coordinates=right_eye_coordinates,
         )
 
@@ -563,15 +562,15 @@ class BlinkDetector:
         # Se la calibrazione è impostata su True allora avvia la calibrazione,
         # altrimenti continua filtrando le gesture e chiamando funzioni di callback
         if self._is_calibrating:
-            self.calibration(sx_ear=sx_ear, dx_ear=dx_ear, timestamp_ms=timestamp_ms)
+            self.calibration(sx_ear=SX_EAR, dx_ear=DX_EAR, timestamp_ms=timestamp_ms)
         else:
             self._precision_filter(
-                sx_ear=sx_ear, dx_ear=dx_ear, timestamp_ms=timestamp_ms
+                SX_EAR=SX_EAR, DX_EAR=DX_EAR, timestamp_ms=timestamp_ms
             )
 
         telemetry_dict: dict[str, float] = {
-            "sx_eye_EAR": sx_ear,
-            "dx_eye_EAR": dx_ear,
+            "sx_eye_EAR": SX_EAR,
+            "dx_eye_EAR": DX_EAR,
             "sx_eye_EAR_THRESHOLD": self._current_left_ear_threshold,
             "dx_eye_EAR_THRESHOLD": self._current_right_ear_threshold,
             "face_pitch": self._angular_delta,
