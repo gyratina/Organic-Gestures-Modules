@@ -125,14 +125,24 @@ For full copyright notices and third-party attribution, please refer to the **[N
 
 ## Development Roadmap
 The roadmap I have set for the development of this API is:
-1. Blinking gestures module <-- **Major features implemented!**
-3. Eyebrow movement gestures module. (v0.2.0)
-4. Eye movement gestures module. (v0.3.0)
-5. Mouth movement gestures module. (v0.4.0)
-2. Hand movement gestures module. (v0.5.0)
-5. Rewriting the core API in C++ and Rust. (v1.0.0)
-6. Creating bindings for JavaScript.
-7. Creating other bindings?
+
+#### OGM v0.1.5:
+1. Manage horizontal face rotation (when rotating the head, the EAR of the outermost eye spikes up).
+2. Perform checks and tests on potential false positives with `BOTH` actions, since the two eyes close and reopen at slightly different milliseconds, in order to evaluate updating the state machine in `precision_filter`.
+3. Evaluate the implementation of a virtual camera for the video channel to feed into MediaPipe.
+
+#### OGM v0.2.0:
+1. Brainstorm how to restructure the API architecture to support the creation of other facial modules.
+2. Rewrite the API architecture.
+3. Add the eyebrows module.
+4. Add the `GEMINI.md`, `CLAUDE.md`, and `AGENTS.md` files as symlinks to the `.rules` file with precise instructions on the style and direction to adopt for development with the contribution of AI agents.
+
+#### Future versions:
+1. Mouth movement gestures module. (v0.3.0)
+2. Eye movement gestures module. (v0.4.0)
+3. Hand movement gestures module. (v0.5.0)
+4. Rewriting the core API in C++ and Rust. (v1.0.0?)
+5. Too early to think this forward.
 
 ---
 
