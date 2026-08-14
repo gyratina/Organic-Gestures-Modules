@@ -156,6 +156,18 @@ class BlinkDetector:
         self._base_right_ear_threshold: float = base_right_ear_threshold
         self._current_left_ear_threshold: float = self._base_left_ear_threshold
         self._current_right_ear_threshold: float = self._base_right_ear_threshold
+        self._previous_left_ear_threshold: float | None = None
+        self._previous_right_ear_threshold: float | None = None
+        self._raw_current_left_ear_threshold: float = self._base_left_ear_threshold
+        self._raw_current_right_ear_threshold: float = self._base_right_ear_threshold
+
+        # Eye Aspect Ratios del frame precedente
+        self._previous_left_ear: float | None = None
+        self._previous_right_ear: float | None = None
+
+        # Eye Aspect Ratio post EMA
+        self._left_ear: float = 0.0
+        self._right_ear: float = 0.0
 
         # Dizionari contente le coordinate X, Y, Z dei punti facciali utilizzato
         # in get_pixel_coordinates per convertire i punti facciali in coordinate
@@ -353,7 +365,7 @@ class BlinkDetector:
         return pixel_points_dict
 
     def _precision_filter(
-        self, SX_EAR: float, DX_EAR: float, timestamp_ms: int
+        self, sx_ear: float, dx_ear: float, timestamp_ms: int
     ) -> None:
         """
         Evaluates frame EAR values against dynamic thresholds, state-machine closure timing, and combo logic.
@@ -370,8 +382,23 @@ class BlinkDetector:
             dx_ear (float): Calculated Eye Aspect Ratio for the right eye.
             timestamp_ms (int): Current frame timestamp in milliseconds.
         """
-        ### Calcolo soglia dinamica
+        ### Applicazione della Media Mobile Esponenziale (EMA) all'EAR
+        # al fine di ridurre il problema del jittering
+        ear_ema_coefficient: float = 0.8
+        if self._previous_left_ear is not None:
+            self._left_ear = (ear_ema_coefficient * sx_ear) + (
+                (1 - ear_ema_coefficient) * self._previous_left_ear
+            )
+        else:
+            self._left_ear = sx_ear
+        if self._previous_right_ear is not None:
+            self._right_ear = (ear_ema_coefficient * dx_ear) + (
+                (1 - ear_ema_coefficient) * self._previous_right_ear
+            )
+        else:
+            self._right_ear = dx_ear
 
+        ### Calcolo soglia dinamica
         if (
             self._default_face_prospective is not None
             and self._current_delta_prospective is not None
@@ -397,7 +424,29 @@ class BlinkDetector:
                 angular_delta_penality
             )
 
-            ### Clamping della soglia dinamica
+            # Applicazione dell'EMA alla soglia dinamica per
+            # ridurre eventuali jittering anche qui
+            threshold_ema_coefficient: float = 0.2
+            if self._previous_left_ear_threshold is not None:
+                self._raw_current_left_ear_threshold = self._current_left_ear_threshold
+
+                self._current_left_ear_threshold = (
+                    self._current_left_ear_threshold * threshold_ema_coefficient
+                ) + (
+                    (1 - threshold_ema_coefficient) * self._previous_left_ear_threshold
+                )
+            if self._previous_right_ear_threshold is not None:
+                self._raw_current_right_ear_threshold = (
+                    self._current_right_ear_threshold
+                )
+
+                self._current_right_ear_threshold = (
+                    self._current_right_ear_threshold * threshold_ema_coefficient
+                ) + (
+                    (1 - threshold_ema_coefficient) * self._previous_right_ear_threshold
+                )
+
+            # Clamping della soglia dinamica
             self._current_left_ear_threshold = max(
                 self._left_eye_min_floor,
                 min(self._base_left_ear_threshold, self._current_left_ear_threshold),
@@ -408,8 +457,8 @@ class BlinkDetector:
             )
 
         ### Filtro di precisione
-        left_eye_ratio: float = SX_EAR / self._current_left_ear_threshold
-        right_eye_ratio: float = DX_EAR / self._current_right_ear_threshold
+        left_eye_ratio: float = self._left_ear / self._current_left_ear_threshold
+        right_eye_ratio: float = self._right_ear / self._current_right_ear_threshold
 
         is_left_eye_closed: bool = left_eye_ratio <= 1.0
         is_right_eye_closed: bool = right_eye_ratio <= 1.0
@@ -478,6 +527,10 @@ class BlinkDetector:
 
             self._last_action = current_action
             self._blink_time_counter = None
+        self._previous_left_ear = self._left_ear
+        self._previous_right_ear = self._right_ear
+        self._previous_left_ear_threshold = self._current_left_ear_threshold
+        self._previous_right_ear_threshold = self._current_right_ear_threshold
 
     def _mediapipe_callback(
         self,
@@ -531,12 +584,12 @@ class BlinkDetector:
         )
 
         # Calcolo dell'EAR per l'occhio Sinistro (prospettiva humana)
-        SX_EAR: float = self._ear_math(
+        RAW_SX_EAR: float = self._ear_math(
             eye_coordinates=left_eye_coordinates,
         )
 
         # Calcolo dell'EAR per l'occhio Destro (prospettiva humana)
-        DX_EAR: float = self._ear_math(
+        RAW_DX_EAR: float = self._ear_math(
             eye_coordinates=right_eye_coordinates,
         )
 
@@ -562,17 +615,26 @@ class BlinkDetector:
         # Se la calibrazione è impostata su True allora avvia la calibrazione,
         # altrimenti continua filtrando le gesture e chiamando funzioni di callback
         if self._is_calibrating:
-            self.calibration(sx_ear=SX_EAR, dx_ear=DX_EAR, timestamp_ms=timestamp_ms)
+            self.calibration(
+                SX_EAR=RAW_SX_EAR, DX_EAR=RAW_DX_EAR, timestamp_ms=timestamp_ms
+            )
         else:
             self._precision_filter(
-                SX_EAR=SX_EAR, DX_EAR=DX_EAR, timestamp_ms=timestamp_ms
+                sx_ear=RAW_SX_EAR, dx_ear=RAW_DX_EAR, timestamp_ms=timestamp_ms
             )
 
         telemetry_dict: dict[str, float] = {
-            "sx_eye_EAR": SX_EAR,
-            "dx_eye_EAR": DX_EAR,
-            "sx_eye_EAR_THRESHOLD": self._current_left_ear_threshold,
-            "dx_eye_EAR_THRESHOLD": self._current_right_ear_threshold,
+            # Valori Post-EMA
+            "sx_eye_ear": self._left_ear,
+            "dx_eye_ear": self._right_ear,
+            "sx_eye_threshold": self._current_left_ear_threshold,
+            "dx_eye_threshold": self._current_right_ear_threshold,
+            # Valori Raw
+            "raw_sx_eye_ear": RAW_SX_EAR,
+            "raw_dx_eye_ear": RAW_DX_EAR,
+            "raw_sx_eye_threshold": self._raw_current_left_ear_threshold,
+            "raw_dx_eye_threshold": self._raw_current_right_ear_threshold,
+            # Altri Valori
             "face_pitch": self._angular_delta,
         }
 
@@ -611,7 +673,7 @@ class BlinkDetector:
 
         return EAR
 
-    def calibration(self, sx_ear: float, dx_ear: float, timestamp_ms: int) -> None:
+    def calibration(self, SX_EAR: float, DX_EAR: float, timestamp_ms: int) -> None:
         """
         Executes baseline EAR threshold and default face pitch calibration over a 3-second (3000 ms) window.
 
@@ -630,8 +692,8 @@ class BlinkDetector:
                 "Inizio calibrazione: Guarda la telecamera con espressione neutra per 3 secondi.\n"
             )
 
-        self._sum_left_ear += sx_ear
-        self._sum_right_ear += dx_ear
+        self._sum_left_ear += SX_EAR
+        self._sum_right_ear += DX_EAR
 
         if self._current_delta_prospective is not None:
             self._delta_prospective_acc += self._current_delta_prospective
