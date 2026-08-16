@@ -11,6 +11,7 @@ pyrightconfig.json
 tasks.json
 main.py
 roadmap.md
+changelog.md
 
 # Build e Packaging di Python
 dist/
