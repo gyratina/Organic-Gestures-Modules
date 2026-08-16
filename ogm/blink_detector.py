@@ -108,8 +108,8 @@ class BlinkDetector:
         self,
         base_left_ear_threshold: float = 0.16,
         base_right_ear_threshold: float = 0.16,
-        min_blink_time_threshold: int = 80,
-        max_blink_time_threshold: int = 500,
+        min_blink_time_threshold: int = 50,
+        max_blink_time_threshold: int = 1000,
         max_combo_delay: int = 2000,
         ear_diff_ratio: float = 0.20,
         model_path: str | None = None,
@@ -194,7 +194,7 @@ class BlinkDetector:
         self._actions: list[tuple[ActionType, int]] = []
         self._last_reopening_timestamp: int | None = None
 
-        self._min_floor_ratio: float = 0.88
+        self._min_floor_ratio: float = 0.85
         self._left_eye_min_floor: float = (
             self._base_left_ear_threshold * self._min_floor_ratio
         )
