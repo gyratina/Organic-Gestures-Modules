@@ -54,12 +54,12 @@ def process_combinations(actions: tuple[tuple[ActionType, int], ...]) -> None:
     match actions:
         # Both eyes double blink
         case [*_, (ActionType.BOTH, p), (ActionType.BOTH, _)] if p <= 1000:
-            print("\nACTION DETECTED: Double Blink!")
+            print("\nCOMBO DETECTED: Double Blink!")
             blink_detector.reset_log()
 
         # Combo: Right eye -> Left eye (max pause 1000ms)
         case [*_, (ActionType.RIGHT, p_dx), (ActionType.LEFT, _)] if p_dx <= 1000:
-            print("\nFAST COMBO DETECTED: Right -> Left!")
+            print("\nCOMBO DETECTED: Right -> Left!")
             blink_detector.reset_log()
 
         # Combo: Left eye -> Right eye
@@ -69,7 +69,7 @@ def process_combinations(actions: tuple[tuple[ActionType, int], ...]) -> None:
 
         # 3-Move Super Combo: Right -> Left -> Right
         case [*_, (ActionType.RIGHT, p1), (ActionType.LEFT, p2), (ActionType.RIGHT, _)] if p1 <= 1000 and p2 <= 1000:
-            print("\n3-MOVE SUPER COMBO DETECTED: Right -> Left -> Right!")
+            print("\nCOMBO DETECTED: Right -> Left -> Right!")
             blink_detector.reset_log()
 
         # Combo: Double Right blink
