@@ -36,78 +36,93 @@ I have included DocStrings within the API files, so if any information is missin
 ### file_name: main.py
 # 
 import time
+import logging
 from ogm import ActionType, BlinkDetector, CameraConfig
 
-# Initialize the detector - For greater accuracy, you should adjust these 3 parameters.
-#                           See the DocStrings for more info about them (i'm lazy).
+# Optional: enable logging to track internal API events
+logging.basicConfig(level=logging.INFO, format="%(name)s - %(levelname)s - %(message)s")
+
+# Initialize the detector with custom precision parameters
 blink_detector = BlinkDetector(
-    ear_diff=0.05, calibration_threshold_ratio=0.60, sensitivity_coefficient=0.15
+    ear_diff_ratio=0.20,
+    calibration_threshold_ratio=0.50,
+    sensitivity_coefficient=0.05
 )
 
-# Define the callback for automatic calibration
-def on_calibration(left_eye: float, right_eye: float):
-    blink_detector.left_ear_threshold = left_eye
-    blink_detector.right_ear_threshold = right_eye
-    print(f"Calibration finished.\nLeft EAR: {left_eye}, Right EAR: {right_eye}")
-
-# Define the callback to handle gesture sequences
-def on_actions(actions: list[tuple[ActionType, int]]):
+# Define the callback to handle complex gesture sequences
+def process_combinations(actions: tuple[tuple[ActionType, int], ...]) -> None:
     match actions:
-        # Single blink of the left eye
-        case [(ActionType.LEFT, _)]:
-            print("Action: LEFT BLINK")
+        # Both eyes double blink
+        case [*_, (ActionType.BOTH, p), (ActionType.BOTH, _)] if p <= 1000:
+            print("\n🌟 ACTION DETECTED: Double Blink!")
             blink_detector.reset_log()
 
-        # Single blink of both eyes
-        case [(ActionType.BOTH, _)]:
-            print("Action: BOTH EYES BLINK")
+        # Combo: Right eye -> Left eye (max pause 1000ms)
+        case [*_, (ActionType.RIGHT, p_dx), (ActionType.LEFT, _)] if p_dx <= 1000:
+            print("\n🌟 FAST COMBO DETECTED: Right -> Left!")
             blink_detector.reset_log()
 
-        # Combo example: Right eye + Left eye (max pause 800ms)
-        case [*_, (ActionType.RIGHT, p), (ActionType.LEFT, _)] if p <= 800:
-            print(f"Action: RIGHT -> LEFT (pause: {p}ms)")
+        # Combo: Left eye -> Right eye
+        case [*_, (ActionType.LEFT, p_sx), (ActionType.RIGHT, _)] if p_sx <= 1000:
+            print("\n🌟 COMBO DETECTED: Left -> Right!")
             blink_detector.reset_log()
 
-        # Wait state: The user blinked the right eye, waiting for combo
-        case [*_, (ActionType.RIGHT, _)]:
-            print("Waiting for complete combo...")
-            pass
+        # 3-Move Super Combo: Right -> Left -> Right
+        case [*_, (ActionType.RIGHT, p1), (ActionType.LEFT, p2), (ActionType.RIGHT, _)] if p1 <= 1000 and p2 <= 1000:
+            print("\n🌟 3-MOVE SUPER COMBO DETECTED: Right -> Left -> Right!")
+            blink_detector.reset_log()
+
+        # Combo: Double Right blink
+        case [*_, (ActionType.RIGHT, p), (ActionType.RIGHT, _)] if p <= 1000:
+            print("\n🌟 COMBO DETECTED: Double Right!")
+            blink_detector.reset_log()
 
         # Ignore any other sequence
         case _:
             pass
 
+# Define the callback for automatic calibration results
+def on_calibration(left_eye: float, right_eye: float) -> None:
+    print("\nCalibration finished.")
+    print(f"Base Thresholds -> Left: {left_eye:.3f} | Right: {right_eye:.3f}\n")
+
+# Optional: telemetry callback to monitor real-time EAR and Thresholds data
+def telemetry(data: dict[str, float]) -> None:
+    print(f"EAR_L: {data['sx_eye_ear']:.3f} | EAR_R: {data['dx_eye_ear']:.3f} "
+          f"(Threshold L/R: {data['sx_eye_threshold']:.3f}/{data['dx_eye_threshold']:.3f})")
+
 if __name__ == "__main__":
-    # Bind callbacks
-    blink_detector.on_blink = on_actions
-    blink_detector.on_calibration_callback = on_calibration
+    # Bind callbacks to the detector
+    blink_detector.on_blink = process_combinations
+    blink_detector.on_calibration = on_calibration
+    # blink_detector.telemetry_callback = telemetry  # Uncomment to see live stats
     
     # Configure camera (use 0 for default webcam)
-    my_camera = CameraConfig()
+    my_camera = CameraConfig(camera_index=0, fps=60)
     
-    # Calibration Phase
-    print("Starting Calibration. Please look at the camera with a neutral expression for 3 seconds...")
+    # ---------------------------------------------------------
+    # 1. Calibration Phase (approx. 3 seconds)
+    # ---------------------------------------------------------
+    print("Starting Calibration. Please look at the camera with a neutral expression...")
     blink_detector.start(mode="calibrate", camera_config=my_camera)
     
-    # Wait for the background thread to finish the 3-second calibration
     time.sleep(3.5)
-    
-    # Safely close the calibration thread and release resources
     blink_detector.close()
     
-    # Gesture Detection Phase
+    # ---------------------------------------------------------
+    # 2. Gesture Detection Phase
+    # ---------------------------------------------------------
     print("Starting Gesture Detection...")
     blink_detector.start(mode="detect", camera_config=my_camera)
     
     try:
-        # Keep the main thread alive while the background daemon thread does the work.
-        # ---> YOU CAN RUN YOUR OWN APPLICATION LOOP OR GUI HERE <---
-        while True:    # This cycle is only for testing the API
+        # Keep the main thread alive while the daemon thread does the work
+        while True:
             time.sleep(1)
     except KeyboardInterrupt:
         print("\nExiting...")
     finally:
-        # Always remember to safely release resources on exit
+        # Safely release resources on exit
         blink_detector.close()
 ```
 
