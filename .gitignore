@@ -1,7 +1,6 @@
 # Directories
 /.venv
 __pycache__/
-/diGemini
 /models
 
 # Documenti interni e file di test
