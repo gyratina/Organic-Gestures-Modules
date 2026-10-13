@@ -28,7 +28,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ogm-vision"
-version = "0.1.4"
+version = "0.2.0"
 authors = [
   { name="Valerio Di Tommaso", email="contact.me@valerioditommaso.dev" },
 ]
