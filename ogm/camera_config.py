@@ -75,8 +75,8 @@ class CameraConfig:
         """
         video: cv.VideoCapture = cv.VideoCapture(self.camera_index)
         if not video.isOpened():
-            log.error("Impossibile aprire la telecamera.\n")
-            raise RuntimeError("Impossibile aprire la telecamera.")
+            log.error("Camera device index cannot be opened.\n")
+            raise RuntimeError("Camera device index cannot be opened.")
 
         video.set(propId=cv.CAP_PROP_FRAME_WIDTH, value=self.width)
         video.set(propId=cv.CAP_PROP_FRAME_HEIGHT, value=self.height)

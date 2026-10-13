@@ -18,7 +18,7 @@
 # author-username: @gyratina (on GitHub)
 # author-name: Valerio Di Tommaso
 # author-email: contact.me@valerioditommaso.dev
-# file-name: blink_detector.py
+# file-name: blinks_module.py
 # ========================================================================
 
 
@@ -43,12 +43,12 @@ from mediapipe.tasks.python.vision.face_landmarker import (
     FaceLandmarkerResult,
 )
 
-from .camera_config import CameraConfig
+from ..camera_config import CameraConfig
 
 log: logging.Logger = logging.getLogger(f"OGM.{__name__}")
 
 
-class ActionType(Enum):
+class BlinkActionType(Enum):
     """
     Enumeration representing the different types of detected ocular gestures.
 
@@ -63,7 +63,7 @@ class ActionType(Enum):
     BOTH = 2
 
 
-class BlinkDetector:
+class BlinksModule:
     """
     Core detector class that processes camera frames to identify and record voluntary ocular gestures.
 
@@ -134,7 +134,7 @@ class BlinkDetector:
         self._is_running: bool | None = None
 
         # Coda Thread-Safe per passare le azioni al thread che chiama la callback on_action
-        self._actions_queue: Queue[tuple[tuple[ActionType, int], ...] | None] = Queue()
+        self._actions_queue: Queue[tuple[tuple[BlinkActionType, int], ...] | None] = Queue()
         self._telemetry_queue: Queue[dict[str, float] | None] = Queue()
 
         # Definizione del Lock Rientrante d'istanza
@@ -191,7 +191,7 @@ class BlinkDetector:
 
         self._max_combo_delay: int = max_combo_delay
 
-        self._actions: list[tuple[ActionType, int]] = []
+        self._actions: list[tuple[BlinkActionType, int]] = []
         self._last_reopening_timestamp: int | None = None
 
         self._min_floor_ratio: float = 0.85
@@ -209,13 +209,13 @@ class BlinkDetector:
         self._is_calibrating: bool = False
         self._calibration_threshold_ratio: float = calibration_threshold_ratio
 
-        self._last_action: ActionType | None = None
+        self._last_action: BlinkActionType | None = None
 
         # Contatore del tempo per il quale l'occhio è stato chiuso
         self._blink_time_counter: int | None = None
 
         # Funzioni di callback
-        self.on_blink: Callable[[tuple[tuple[ActionType, int], ...]], None] | None = (
+        self.on_blink: Callable[[tuple[tuple[BlinkActionType, int], ...]], None] | None = (
             None
         )
         self.on_calibration: Callable[[float, float], None] | None = None
@@ -223,9 +223,9 @@ class BlinkDetector:
 
         # Percorso file del model bundle
         if model_path is None:
-            current_directory: str = os.path.dirname(__file__)
+            package_directory: str = os.path.dirname(os.path.dirname(__file__))
             self._model_path: str = os.path.join(
-                current_directory, "models", "face_landmarker.task"
+                package_directory, "models", "face_landmarker.task"
             )
         else:
             self._model_path = model_path
@@ -467,20 +467,20 @@ class BlinkDetector:
         reopening_moment: int | None = None
         lapse: int | None = None
 
-        current_action: ActionType | None = None
+        current_action: BlinkActionType | None = None
         if are_both_eyes_closed:
             if (right_eye_ratio - left_eye_ratio) > self._ear_diff_ratio:
-                current_action = ActionType.LEFT
+                current_action = BlinkActionType.LEFT
             elif (left_eye_ratio - right_eye_ratio) > self._ear_diff_ratio:
-                current_action = ActionType.RIGHT
+                current_action = BlinkActionType.RIGHT
             else:
-                current_action = ActionType.BOTH
+                current_action = BlinkActionType.BOTH
 
         elif current_action is None:
             if is_left_eye_closed:
-                current_action = ActionType.LEFT
+                current_action = BlinkActionType.LEFT
             elif is_right_eye_closed:
-                current_action = ActionType.RIGHT
+                current_action = BlinkActionType.RIGHT
             else:
                 current_action = None
 
@@ -517,7 +517,7 @@ class BlinkDetector:
                                 self._last_reopening_timestamp = reopening_moment
 
                         # Creazione copia (snapshot) immutabile (tuple) della lista _actions
-                        snapshot: tuple[tuple[ActionType, int], ...] = tuple(
+                        snapshot: tuple[tuple[BlinkActionType, int], ...] = tuple(
                             self._actions
                         )
 
@@ -555,11 +555,13 @@ class BlinkDetector:
         if not result.face_landmarks:
             return
 
-        # Ottenimento dati sulla dimensione della camera
+        # Ottenimento dati sulla dimensione dell'immagine
         height, width = output_image.height, output_image.width
 
         # Vengono salvati i dati in merito alla prima faccia trovata da MediaPipe (478 oggetti NormalizedLandmark)
         face_landmarks = result.face_landmarks[0]
+
+        ### ! Fermarsi qui nell'engine e passare FrameData ai moduli attivati
 
         # Traduzione dei dizionari dei punti degli occhi in coordinate X, Y dei pixel sullo schermo
         left_eye_coordinates: dict[str, tuple[float, float]] = cast(
@@ -739,7 +741,7 @@ class BlinkDetector:
         until a `None` sentinel item is received when stopping.
         """
         while self._is_running:
-            actions: tuple[tuple[ActionType, int], ...] | None = (
+            actions: tuple[tuple[BlinkActionType, int], ...] | None = (
                 self._actions_queue.get()
             )
             if actions is None:
@@ -859,6 +861,7 @@ class BlinkDetector:
                 self._is_calibrating = False
                 self._actions_queue = Queue()
 
+                # Viene fatto partire prima il thread delle azioni per evitare di perdere eventuali prime azioni
                 self._actions_sentinel_thread = threading.Thread(
                     target=self._actions_sentinel, daemon=True
                 )
@@ -880,5 +883,4 @@ class BlinkDetector:
             target=self._execution_loop, args=(mode, camera_config), daemon=True
         )
 
-        # Viene fatto partire prima il thread delle azioni per evitare di perdere eventuali prime azioni
         self._ogm_thread.start()
