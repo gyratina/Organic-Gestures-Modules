@@ -22,7 +22,8 @@
 # ========================================================================
 
 
-from .blink_detector import ActionType, BlinkDetector
+from . import face
 from .camera_config import CameraConfig
+from .face import BlinkActionType, BlinksModule
 
-__all__ = ["ActionType", "BlinkDetector", "CameraConfig"]
+__all__ = ["BlinkActionType", "BlinksModule", "CameraConfig", "face"]
