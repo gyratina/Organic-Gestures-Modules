@@ -11,18 +11,20 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    if: github.repository_owner == 'gyratina' # Gira solo sul tuo repo, non nel fork
     steps:
       - name: Run full checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false # Disattiva github-actions[bot] e usa il tuo token
 
-      - name: Sincronizza branch o tag corrente con l'organizzazione
+      - name: Synchronize branch or current tag with the organization
         env:
           TOKEN: ${{ secrets.TUFF_SYNC }}
         run: |
           if [ "${{ github.event_name }}" = "delete" ]; then
-            git push https://x-access-token:${TOKEN}@github.com/Tuff-Valley/Organic-Gestures-Modules.git --delete ${{ github.event.ref }}
+            git push "https://x-access-token:${TOKEN}@github.com/Tuff-Valley/Organic-Gestures-Modules.git" --delete "${{ github.event.ref }}"
           else
-            git push --force https://x-access-token:${TOKEN}@github.com/Tuff-Valley/Organic-Gestures-Modules.git HEAD:${{ github.ref }}
+            git push --force "https://x-access-token:${TOKEN}@github.com/Tuff-Valley/Organic-Gestures-Modules.git" "HEAD:${{ github.ref }}"
           fi
