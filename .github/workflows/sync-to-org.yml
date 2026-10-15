@@ -1,0 +1,28 @@
+name: Sync all branchs and tags to organization
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+  delete:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run full checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sincronizza branch o tag corrente con l'organizzazione
+        env:
+          TOKEN: ${{ secrets.TUFF_SYNC }}
+        run: |
+          if [ "${{ github.event_name }}" = "delete" ]; then
+            git push https://x-access-token:${TOKEN}@github.com/Tuff-Valley/Organic-Gestures-Modules.git --delete ${{ github.event.ref }}
+          else
+            git push --force https://x-access-token:${TOKEN}@github.com/Tuff-Valley/Organic-Gestures-Modules.git HEAD:${{ github.ref }}
+          fi
