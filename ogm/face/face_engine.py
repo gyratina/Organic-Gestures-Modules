@@ -25,10 +25,7 @@ import logging
 import os
 import threading
 import time
-from math import dist
-from queue import Queue
-from typing import Callable, ClassVar, cast
-from dataclasses import dataclass
+from collections.abc import Callable
 
 import cv2 as cv
 import mediapipe as mp
@@ -44,19 +41,10 @@ from mediapipe.tasks.python.vision.face_landmarker import (
 from ogm.modules_base import Module
 
 from ..camera_config import CameraConfig
+from ..ogm import FrameData
 
 log: logging.Logger = logging.getLogger(f"OGM.{__name__}")
 
-@dataclass(slots=True)
-class FrameData:
-    face_landmarks: list[int]
-    frame_height: int
-    frame_width: int
-    timestamp_ms: int
-    face_pitch: float
-    face_yaw: float
-    face_roll: float
-    face_translation: float
 
 class FaceLandmarksDetection:
     def __init__(
@@ -90,13 +78,6 @@ class FaceLandmarksDetection:
 
         # Definizione del Lock Rientrante d'istanza
         self._rlock: threading.RLock = threading.RLock()
-
-        # Definizione del thread del modulo
-        self._face_engine_thread: threading.Thread | None = None
-
-        # Definizione del thread che chiama la callback on_blink passandogli la copia
-        # immutabile (tupla) della lista delle azioni
-        self._actions_sentinel_thread: threading.Thread | None = None
 
 
     def _frame_formattation(self, rgb: MatLike) -> None:
@@ -142,7 +123,7 @@ class FaceLandmarksDetection:
         face_landmarks = result.face_landmarks[0]
 
         frame_data: FrameData = FrameData(
-            face_landmarks = face_landmarks,
+            landmarks = face_landmarks,
             frame_height = height,
             frame_width = width,
             timestamp_ms = timestamp_ms,

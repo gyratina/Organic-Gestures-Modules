@@ -25,8 +25,10 @@
 import logging
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from queue import Queue
 
+from mediapipe.tasks.python.components.containers.landmark import NormalizedLandmark
 from mediapipe.tasks.python.vision import FaceLandmarker
 
 from .actions import ActionType
@@ -36,6 +38,16 @@ from .modules_base import Module
 
 log: logging.Logger = logging.getLogger(f"OGM.{__name__}")
 
+@dataclass(slots=True)
+class FrameData:
+    landmarks: list[NormalizedLandmark]
+    frame_height: int
+    frame_width: int
+    timestamp_ms: int
+    face_pitch: float
+    face_yaw: float
+    face_roll: float
+    face_translation: float
 
 class OGM:
     def __init__(
