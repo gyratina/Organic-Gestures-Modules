@@ -22,21 +22,22 @@
 # ========================================================================
 
 
-from abc import abstractmethod
 import logging
 import os
 import threading
 import time
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from enum import Enum
 from math import dist
 from queue import Queue
-from typing import ClassVar, cast, overload, override
+from typing import ClassVar, override
 
 import cv2 as cv
 import mediapipe as mp
 from cv2.typing import MatLike
 from mediapipe.tasks import python as py
+from mediapipe.tasks.python.components.containers.landmark import NormalizedLandmark
 from mediapipe.tasks.python.vision import RunningMode
 from mediapipe.tasks.python.vision.face_landmarker import (
     FaceLandmarker,
@@ -44,10 +45,8 @@ from mediapipe.tasks.python.vision.face_landmarker import (
     FaceLandmarkerResult,
 )
 
-from ogm.face.face_engine import FrameData
-
-from ..camera_config import CameraConfig
 from ..modules_base import Module
+from ..ogm import FrameData
 
 log: logging.Logger = logging.getLogger(f"OGM.{__name__}")
 
@@ -87,14 +86,87 @@ class BlinksModule(Module):
         ear_diff_ratio: float = 0.20,
         calibration_threshold_ratio: float = 0.50
     ) -> None:
+        self.left_eye_coordinates: dict[str, tuple[float, float]] = {}
+        self.right_eye_coordinates: dict[str, tuple[float, float]] = {}
+
+    @override
+    def _frame_processing(self, frame_data: FrameData) -> None:
+        self._get_coordinates(
+            face_landmarks=frame_data.landmarks,
+            frame_height=frame_data.frame_height,
+            frame_width=frame_data.frame_width,
+            highlight_points=self._LEFT_EYE,
+            output_dict=self.left_eye_coordinates
+        )
+        self._get_coordinates(
+            face_landmarks=frame_data.landmarks,
+            frame_height=frame_data.frame_height,
+            frame_width=frame_data.frame_width,
+            highlight_points=self._RIGHT_EYE,
+            output_dict=self.right_eye_coordinates
+        )
+
+        RAW_SX_EAR: float = self._calcs(
+            highlight_coordinates=self.left_eye_coordinates,
+        )
+        RAW_DX_EAR: float = self._calcs(
+            highlight_coordinates=self.right_eye_coordinates,
+        )
 
 
-    # TODO: Scrivere i metodi _get_coordinates e _frame_processing
+    @override
     def _get_coordinates(
         self,
-        face_landmarks: list[int],
+        face_landmarks: list[NormalizedLandmark],
         frame_height: int,
         frame_width: int,
         highlight_points: dict[str, int],
-        output_dict: dict[str, tuple[float, float]],
-    ) -> dict[str, tuple[float, float]]:
+        output_dict: dict[str, tuple[float, float]]
+    ) -> None:
+        for key, index in highlight_points.items():
+            # Dai dati del volto, viene estratto il punto del volto equivalente all'indice iterato e assegnato a face_point_data.
+            # Essendo che ogni punto del volto ha 3 attributi X, Y e Z adesso face_point_data ha i 3 punti di face_landmarks[index]
+            face_point_data = face_landmarks[index]
+
+            # A ogni iterazione viene aggiunto al nuovo dizionario il prodotto tra gli attributi delle coordinate X e Y di face_point_data
+            # e la larghezza e altezza del frame.
+            if face_point_data.x is not None and face_point_data.y is not None:
+                output_dict[key] = (
+                    face_point_data.x * frame_width,
+                    face_point_data.y * frame_height,
+                )
+
+
+
+    @override
+    def _calcs(
+        self,
+        highlight_coordinates: dict[str, tuple[float, float]]
+    ) -> float:
+        """
+        Calculates the Eye Aspect Ratio (EAR) from 6 landmark screen pixel coordinates.
+
+        Implements the Soukupová Eye Aspect Ratio formula:
+        `EAR = (dist(P2, P6) + dist(P3, P5)) / (2 * dist(P1, P4))`
+
+        Args:
+            eye_coordinates (dict[str, tuple[float, float]]): Mapping of landmark keys ('P1' through 'P6')
+                to 2D screen pixel coordinate tuples `(x, y)`.
+
+        Returns:
+            float: The computed non-dimensional EAR value for the specified eye.
+        """
+        # Aliases
+        P1 = highlight_coordinates["P1"]
+        P2 = highlight_coordinates["P2"]
+        P3 = highlight_coordinates["P3"]
+        P4 = highlight_coordinates["P4"]
+        P5 = highlight_coordinates["P5"]
+        P6 = highlight_coordinates["P6"]
+
+        # Calcolo EAR (Eye Aspect Ratio)
+        numerator: float = dist(P2, P6) + dist(P3, P5)
+        denominator: float = 2 * dist(P1, P4)
+        EAR: float = numerator / denominator
+
+        return EAR

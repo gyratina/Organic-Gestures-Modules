@@ -22,9 +22,10 @@
 # ========================================================================
 
 from abc import ABC, abstractmethod
-from typing import overload
 
-from ogm.face.face_engine import FrameData
+from mediapipe.tasks.python.components.containers.landmark import NormalizedLandmark
+
+from .ogm import FrameData
 
 
 class Module(ABC):
@@ -32,26 +33,20 @@ class Module(ABC):
     def _frame_processing(self, frame_data: FrameData) -> None:
         pass
 
-    @overload
     @abstractmethod
     def _get_coordinates(
         self,
-        face_landmarks: list[int],
+        face_landmarks: list[NormalizedLandmark],
         frame_height: int,
         frame_width: int,
         highlight_points: dict[str, int],
-        output_dict: dict[str, tuple[float, float]],
-    ) -> dict[str, tuple[float, float]]:
+        output_dict: dict[str, tuple[float, float]]
+    ) -> None:
         pass
 
-    @overload
     @abstractmethod
-    def _get_coordinates(
+    def _calcs(
         self,
-        face_landmarks: list[int],
-        frame_height: int,
-        frame_width: int,
-        highlight_points: dict[str, int],
-        output_dict: dict[str, tuple[float, float, float]],
-    ) -> dict[str, tuple[float, float, float]]:
+        highlight_coordinates: dict[str, tuple[float, float]]
+    ) -> float:
         pass
