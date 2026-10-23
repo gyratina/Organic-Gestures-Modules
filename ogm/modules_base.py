@@ -22,6 +22,7 @@
 # ========================================================================
 
 from abc import ABC, abstractmethod
+from typing import ClassVar
 
 from mediapipe.tasks.python.components.containers.landmark import NormalizedLandmark
 
@@ -29,6 +30,8 @@ from .ogm import FrameData
 
 
 class Module(ABC):
+    MODULE_NAME: ClassVar[str]
+
     @abstractmethod
     def _frame_processing(self, frame_data: FrameData) -> None:
         pass
@@ -49,4 +52,12 @@ class Module(ABC):
         self,
         highlight_coordinates: dict[str, tuple[float, float]]
     ) -> float:
+        pass
+
+    @abstractmethod
+    def _calibration(self, frame_data: FrameData) -> None:
+        pass
+
+    @abstractmethod
+    def _get_calibration_data(self) -> dict[str, float]:
         pass

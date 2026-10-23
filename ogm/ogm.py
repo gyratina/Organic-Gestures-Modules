@@ -33,10 +33,7 @@ from mediapipe.tasks.python.vision import FaceLandmarker
 
 from .actions import ActionType
 from .camera_config import CameraConfig
-from .face.face_engine import FaceLandmarksDetection
-from .modules_base import Module
 
-log: logging.Logger = logging.getLogger(f"OGM.{__name__}")
 
 @dataclass(slots=True)
 class FrameData:
@@ -48,6 +45,12 @@ class FrameData:
     face_yaw: float
     face_roll: float
     face_translation: float
+
+
+from .face.face_engine import FaceLandmarksDetection
+from .modules_base import Module
+
+log: logging.Logger = logging.getLogger(f"OGM.{__name__}")
 
 class OGM:
     def __init__(
@@ -84,7 +87,7 @@ class OGM:
         self.on_action: Callable[[tuple[tuple[ActionType, int], ...]], None] | None = (
             None
         )
-        self.calibration_callback: Callable[[float, float], None] | None = None
+        self.on_calibration: Callable[[dict[str, dict[str, float]]], None] | None = None
 
     def _actions_sentinel(self) -> None:
         """
@@ -113,9 +116,7 @@ class OGM:
             return
 
         if mode == "calibrate":
-            if (
-                self.calibration_callback is None
-            ):  # Deve diventare modulo.on_calibration
+            if self.on_calibration is None:
                 log.error(
                     'The "on_calibration" callback function has not been defined before start.'
                 )
@@ -150,6 +151,8 @@ class OGM:
         if self._face_engine_object is None:
             face_engine_object: FaceLandmarksDetection = FaceLandmarksDetection(modules=self._modules)
             self._face_engine_object = face_engine_object
+
+        self._face_engine_object.on_calibration = self.on_calibration
 
         self._face_engine_thread = threading.Thread(
             target=self._face_engine_object.execution_loop,

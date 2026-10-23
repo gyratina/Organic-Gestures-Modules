@@ -72,7 +72,9 @@ class FaceLandmarksDetection:
         # Salva il timestamp dell'ultimo timestamp in millisecondi
         self._last_timestamp_ms: int = 0
 
-        self.calibration_callback: Callable[[float, float], None] | None = None
+        self._is_calibrating: bool = False
+        self._calib_start_time: int | None = None
+        self.on_calibration: Callable[[dict[str, dict[str, float]]], None] | None = None
 
         # TODO: Implementare la actions queue in base alla Classe ActionType da creare
 
@@ -135,8 +137,35 @@ class FaceLandmarksDetection:
             face_translation = 0.0
         )
 
+        if self._is_calibrating and self._calib_start_time is None:
+            self._calib_start_time = timestamp_ms
+            log.info(
+                "Inizio calibrazione: Guarda la telecamera con espressione neutra per 3 secondi.\n"
+            )
+
         for module in self._modules:
             module._frame_processing(frame_data)
+            if self._is_calibrating:
+                module._calibration(frame_data)
+            else:
+                # TODO: Chiamare module._precision_filter(frame_data)
+                pass
+
+        if self._is_calibrating and self._calib_start_time is not None:
+            time_elapsed: int = timestamp_ms - self._calib_start_time
+
+            if time_elapsed >= 3000:
+                calibration_data: dict[str, dict[str, float]] = {}
+                for module in self._modules:
+                    calibration_data[module.MODULE_NAME] = (
+                        module._get_calibration_data()
+                    )
+
+                self._is_calibrating = False
+                self._calib_start_time = None
+
+                if self.on_calibration is not None:
+                    self.on_calibration(calibration_data)
 
 
     def execution_loop(
@@ -145,6 +174,8 @@ class FaceLandmarksDetection:
         # TODO: FARE CAM MULTI CANALE CON CONTROLLO IN OGM SE NONE
         camera_config: CameraConfig | None
     ) -> None:
+        self._is_running = True
+        self._is_calibrating = mode == "calibrate"
 
         # Impostazioni del modello di Landmarking facciale
         self._face_landmarker = FaceLandmarker.create_from_options(
@@ -172,9 +203,9 @@ class FaceLandmarksDetection:
 
             self._frame_formattation(rgb=rgb_frame)
 
-            # TODO: Fixare quando implementata la calibrazione
-            #if mode == "calibrate" and self._is_calibrating is False:
-            #    break
+            if mode == "calibrate" and not self._is_calibrating:
+                break
 
+        self._is_running = False
         self._face_landmarker.close()
         video.release()
