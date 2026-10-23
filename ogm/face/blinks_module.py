@@ -52,6 +52,7 @@ log: logging.Logger = logging.getLogger(f"OGM.{__name__}")
 
 
 class BlinksModule(Module):
+    MODULE_NAME: ClassVar[str] = "blinks"
 
     _LEFT_EYE: ClassVar[dict[str, int]] = {
         "P1": 263,  # Angolo esterno
@@ -89,6 +90,20 @@ class BlinksModule(Module):
         self.left_eye_coordinates: dict[str, tuple[float, float]] = {}
         self.right_eye_coordinates: dict[str, tuple[float, float]] = {}
 
+        # Valori EAR grezzi del frame corrente
+        self._raw_sx_ear: float = 0.0
+        self._raw_dx_ear: float = 0.0
+
+        # Soglie di apertura dell'occhio
+        self._base_left_ear_threshold: float = base_left_ear_threshold
+        self._base_right_ear_threshold: float = base_right_ear_threshold
+        self._calibration_threshold_ratio: float = calibration_threshold_ratio
+
+        # Variabili di conteggio e somma per la calibrazione degli occhi
+        self._sum_left_ear: float = 0.0
+        self._sum_right_ear: float = 0.0
+        self._count_ear: int = 0
+
     @override
     def _frame_processing(self, frame_data: FrameData) -> None:
         self._get_coordinates(
@@ -106,13 +121,40 @@ class BlinksModule(Module):
             output_dict=self.right_eye_coordinates
         )
 
-        RAW_SX_EAR: float = self._calcs(
+        self._raw_sx_ear = self._calcs(
             highlight_coordinates=self.left_eye_coordinates,
         )
-        RAW_DX_EAR: float = self._calcs(
+        self._raw_dx_ear = self._calcs(
             highlight_coordinates=self.right_eye_coordinates,
         )
 
+    @override
+    def _calibration(self, frame_data: FrameData) -> None:
+        self._sum_left_ear += self._raw_sx_ear
+        self._sum_right_ear += self._raw_dx_ear
+        self._count_ear += 1
+
+    @override
+    def _get_calibration_data(self) -> dict[str, float]:
+        if self._count_ear > 0:
+            avg_left_ear: float = self._sum_left_ear / self._count_ear
+            avg_right_ear: float = self._sum_right_ear / self._count_ear
+
+            self._base_left_ear_threshold = (
+                avg_left_ear * self._calibration_threshold_ratio
+            )
+            self._base_right_ear_threshold = (
+                avg_right_ear * self._calibration_threshold_ratio
+            )
+
+        self._sum_left_ear = 0.0
+        self._sum_right_ear = 0.0
+        self._count_ear = 0
+
+        return {
+            "left_ear_threshold": self._base_left_ear_threshold,
+            "right_ear_threshold": self._base_right_ear_threshold,
+        }
 
     @override
     def _get_coordinates(
