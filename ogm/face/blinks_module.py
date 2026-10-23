@@ -113,6 +113,8 @@ class BlinksModule(Module):
             highlight_coordinates=self.right_eye_coordinates,
         )
 
+        
+
 
     @override
     def _get_coordinates(
