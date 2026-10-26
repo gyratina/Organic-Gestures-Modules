@@ -148,7 +148,7 @@ class FaceLandmarksDetection:
             if self._is_calibrating:
                 module._calibration(frame_data)
             else:
-                # TODO: Chiamare module._precision_filter(frame_data)
+                # TODO: Chiamare module._actions_timed_FSM(frame_data)
                 pass
 
         if self._is_calibrating and self._calib_start_time is not None:

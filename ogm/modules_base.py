@@ -61,3 +61,7 @@ class Module(ABC):
     @abstractmethod
     def _get_calibration_data(self) -> dict[str, float]:
         pass
+
+    @abstractmethod
+    def _actions_timed_FSM(self, frame_data: FrameData) -> None:
+        pass
