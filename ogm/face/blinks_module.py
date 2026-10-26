@@ -179,7 +179,6 @@ class BlinksModule(Module):
                 )
 
 
-
     @override
     def _calcs(
         self,

@@ -91,7 +91,7 @@ class OGM:
 
     def _actions_sentinel(self) -> None:
         """
-        Sentinel worker thread loop for invoking the `on_blink` callback asynchronously.
+        Sentinel worker thread loop for invoking the `on_action` callback asynchronously.
 
         Continuously pops action sequence snapshots from `_actions_queue` and dispatches them to `on_blink`
         until a `None` sentinel item is received when stopping.
