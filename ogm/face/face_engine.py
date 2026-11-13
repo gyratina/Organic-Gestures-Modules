@@ -23,7 +23,6 @@
 
 import logging
 import os
-import threading
 import time
 from collections.abc import Callable
 
@@ -38,10 +37,10 @@ from mediapipe.tasks.python.vision.face_landmarker import (
     FaceLandmarkerResult,
 )
 
-from ogm.modules_base import Module
-
+from ..actions import ActionsContext
 from ..camera_config import CameraConfig
-from ..ogm import FrameData
+from ..frame_data import FrameData
+from ..modules_base import Module
 
 log: logging.Logger = logging.getLogger(f"OGM.{__name__}")
 
@@ -60,6 +59,10 @@ class FaceLandmarksDetection:
 
         self._modules: list[Module] = modules
 
+
+        self.frame_data: FrameData | None = None
+        self.action_ctx: ActionsContext | None = None
+
         # Percorso file del model bundle
         if model_path is None:
             package_directory: str = os.path.dirname(os.path.dirname(__file__))
@@ -75,11 +78,6 @@ class FaceLandmarksDetection:
         self._is_calibrating: bool = False
         self._calib_start_time: int | None = None
         self.on_calibration: Callable[[dict[str, dict[str, float]]], None] | None = None
-
-        # TODO: Implementare la actions queue in base alla Classe ActionType da creare
-
-        # Definizione del Lock Rientrante d'istanza
-        self._rlock: threading.RLock = threading.RLock()
 
 
     def _frame_formattation(self, rgb: MatLike) -> None:
@@ -114,6 +112,11 @@ class FaceLandmarksDetection:
         output_image: mp.Image,
         timestamp_ms: int,
     ) -> None:
+        # Controllo se il contesto delle azioni è istanziato correttamente
+        if self.action_ctx is None:
+            log.error("The Actions Context isn't setted correctly in the face engine.\n")
+            return
+
         # Controllo se la telecamera ha trovato almeno un volto
         if not result.face_landmarks:
             return
@@ -124,7 +127,7 @@ class FaceLandmarksDetection:
         # Vengono salvati i dati in merito alla prima faccia trovata da MediaPipe (478 oggetti NormalizedLandmark)
         face_landmarks = result.face_landmarks[0]
 
-        frame_data: FrameData = FrameData(
+        self.frame_data = FrameData(
             landmarks = face_landmarks,
             frame_height = height,
             frame_width = width,
@@ -144,12 +147,14 @@ class FaceLandmarksDetection:
             )
 
         for module in self._modules:
-            module._frame_processing(frame_data)
+            module._frame_processing(self.frame_data)    # pyright: ignore[reportPrivateUsage]
             if self._is_calibrating:
-                module._calibration(frame_data)
+                module._calibration(self.frame_data)    # pyright: ignore[reportPrivateUsage]
             else:
-                # TODO: Chiamare module._actions_timed_FSM(frame_data)
-                pass
+                module._actions_timed_FSM(    # pyright: ignore[reportPrivateUsage]
+                    frame_data=self.frame_data,
+                    action_ctx=self.action_ctx
+                )
 
         if self._is_calibrating and self._calib_start_time is not None:
             time_elapsed: int = timestamp_ms - self._calib_start_time
@@ -158,7 +163,7 @@ class FaceLandmarksDetection:
                 calibration_data: dict[str, dict[str, float]] = {}
                 for module in self._modules:
                     calibration_data[module.MODULE_NAME] = (
-                        module._get_calibration_data()
+                        module._get_calibration_data()    # pyright: ignore[reportPrivateUsage]
                     )
 
                 self._is_calibrating = False

@@ -25,32 +25,15 @@
 import logging
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
 from queue import Queue
 
-from mediapipe.tasks.python.components.containers.landmark import NormalizedLandmark
-from mediapipe.tasks.python.vision import FaceLandmarker
-
-from .actions import ActionType
+from .actions import ActionsContext, ActionType
 from .camera_config import CameraConfig
-
-
-@dataclass(slots=True)
-class FrameData:
-    landmarks: list[NormalizedLandmark]
-    frame_height: int
-    frame_width: int
-    timestamp_ms: int
-    face_pitch: float
-    face_yaw: float
-    face_roll: float
-    face_translation: float
-
-
 from .face.face_engine import FaceLandmarksDetection
 from .modules_base import Module
 
 log: logging.Logger = logging.getLogger(f"OGM.{__name__}")
+
 
 class OGM:
     def __init__(
@@ -69,19 +52,18 @@ class OGM:
         # Flag per indicare lo stato di esecuzione dell'API
         self._is_running: bool | None = None
 
-        # Definizione del Lock Rientrante d'istanza
-        self._rlock: threading.RLock = threading.RLock()
-
         # Definizione thread dell'engine mediapipe del volto
         self._face_engine_thread: threading.Thread
-
-        self._actions: list[tuple[ActionType, int]] = []
 
         # Definizione del thread che chiama la callback on_action passandogli la copia
         # immutabile (tupla) della lista delle azioni
         self._actions_sentinel_thread: threading.Thread | None = None
 
-        self._actions_queue: Queue[tuple[tuple[ActionType, int], ...] | None] = Queue()
+        self.action_ctx: ActionsContext = ActionsContext(
+            actions_list=[],
+            actions_queue=Queue(),
+            rlock=threading.RLock()
+        )
 
         # Funzioni di callback
         self.on_action: Callable[[tuple[tuple[ActionType, int], ...]], None] | None = (
@@ -89,7 +71,7 @@ class OGM:
         )
         self.on_calibration: Callable[[dict[str, dict[str, float]]], None] | None = None
 
-    def _actions_sentinel(self) -> None:
+    def _actions_sentinel(self, actions_queue: Queue[tuple[tuple[ActionType, int], ...] | None] ) -> None:
         """
         Sentinel worker thread loop for invoking the `on_action` callback asynchronously.
 
@@ -98,7 +80,7 @@ class OGM:
         """
         while self._is_running:
             actions: tuple[tuple[ActionType, int], ...] | None = (
-                self._actions_queue.get()
+                actions_queue.get()
             )
             if actions is None:
                 break
@@ -106,11 +88,7 @@ class OGM:
             if self.on_action is not None:
                 self.on_action(actions)
 
-    def start(
-        self,
-        mode: str,
-        camera_config: CameraConfig | None = None
-    ) -> None:
+    def start(self, mode: str, camera_config: CameraConfig | None = None) -> None:
         if self._is_running:
             log.error("The module has already been started.")
             return
@@ -134,30 +112,39 @@ class OGM:
                 )
                 return
 
-            self._is_running = True
-            self._actions_queue = Queue()
-
             self._actions_sentinel_thread = threading.Thread(
-                target=self._actions_sentinel, daemon=True
+                target=self._actions_sentinel,
+                args=(self.action_ctx.actions_queue, ),
+                daemon=True
             )
+            self._is_running = True
             self._actions_sentinel_thread.start()
+
 
         else:
             log.error(f'"{mode}" doesn\'t exist as an available mode.')
             return
 
-
-
         if self._face_engine_object is None:
-            face_engine_object: FaceLandmarksDetection = FaceLandmarksDetection(modules=self._modules)
+            face_engine_object: FaceLandmarksDetection = FaceLandmarksDetection(
+                modules=self._modules
+            )
             self._face_engine_object = face_engine_object
 
+        self._face_engine_object.action_ctx = self.action_ctx
         self._face_engine_object.on_calibration = self.on_calibration
 
         self._face_engine_thread = threading.Thread(
             target=self._face_engine_object.execution_loop,
             args=(mode, camera_config),
-            daemon=True
+            daemon=True,
         )
 
         self._face_engine_thread.start()
+
+    def clear(self) -> None:
+        self.action_ctx._clear()    # pyright: ignore[reportPrivateUsage]
+
+    # TODO
+    def close(self) -> None:
+        pass
