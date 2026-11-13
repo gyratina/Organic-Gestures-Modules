@@ -1,0 +1,18 @@
+Scheme generated via Gemini in italian language (sorry for any non-italian reading this)
+
+
+POV: BlinksModule._actions_timed_FSM
+
+TEMPO ──────────────────────────────────────────────────────────────────────────────────────▶
+[ Gesto precedente ] ──────── ( lapse = 400 ms ) ──────── [   _last_state (LEFT)   ] ──▶ ADESSO
+1000 ────────▶ 1100                                       1500 ──────────────▶ 1650      (current_state = None)
+                 │                                          │                    │
+                 │                                          │                    ▼
+                 │                                          │       reopening_moment = 1650
+                 │                                          │       (fine di _last_state)
+                 │                                          ▼
+                 │                        self._last_state_timestamp_ms = 1500
+                 │                        (inizio di _last_state)
+                 ▼
+  action_ctx.last_action_end_timestamp_ms = 1100
+  (fine del gesto precedente già in `actions`)

@@ -26,7 +26,9 @@ from typing import ClassVar
 
 from mediapipe.tasks.python.components.containers.landmark import NormalizedLandmark
 
-from .ogm import FrameData
+from ogm.actions import ActionsContext
+
+from .frame_data import FrameData
 
 
 class Module(ABC):
@@ -63,5 +65,5 @@ class Module(ABC):
         pass
 
     @abstractmethod
-    def _actions_timed_FSM(self, frame_data: FrameData) -> None:
+    def _actions_timed_FSM(self, frame_data: FrameData, action_ctx: ActionsContext) -> None:
         pass

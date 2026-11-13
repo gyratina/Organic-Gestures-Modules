@@ -150,12 +150,16 @@ The roadmap I have set for the development of this API is:
 6. Add the eyebrows module.
 7. Add the `GEMINI.md`, `CLAUDE.md`, and `AGENTS.md` files as symlinks to a `.rules` file with precise instructions on the style and direction to adopt for development with the contribution of AI agents.
 
+#### OGM v0.3.0:
+1. Mouth movement gestures module.
+2. Add saving functionality for calibration data.
+3. Allow modules to be launched at runtime, provided they have been previously calibrated.
+
 #### Future versions:
-1. Mouth movement gestures module. (v0.3.0)
-2. Eye movement gestures module. (v0.4.0)
-3. Hand movement gestures module. (v0.5.0)
-4. Rewriting the core API in C++ and Rust. (v1.0.0?)
-5. Too early to think any forward.
+1. Eye movement gestures module. (v0.4.0)
+2. Hand movement gestures module. (v0.5.0)
+3. Rewriting the core API in C++ and Rust. (v1.0.0?)
+4. Too early to think any forward.
 
 ---
 
