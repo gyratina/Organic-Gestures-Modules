@@ -144,22 +144,36 @@ The roadmap I have set for the development of this API is:
 #### OGM v0.2.0:
 1. Brainstorm how to restructure the API architecture to support the creation of other facial modules.
 2. Rewrite the API architecture.
-3. Rework entirely the current face orientation calculations with the implementation of the PnP algorithm (Perspective-n-Point).
-4. Perform checks and tests on potential false positives with `BOTH` actions, since the two eyes close and reopen at slightly different milliseconds, in order to evaluate updating the state machine in `precision_filter`.
-5. Evaluate the implementation of a virtual camera for the video channel to feed into MediaPipe.
-6. Add the eyebrows module.
-7. Add the `GEMINI.md`, `CLAUDE.md`, and `AGENTS.md` files as symlinks to a `.rules` file with precise instructions on the style and direction to adopt for development with the contribution of AI agents.
+3. *Evaluate the implementation of a virtual camera for the video channel to feed into MediaPipe.
+
+#### OGM v0.2.1:
+- Rework entirely the current face orientation calculations with the implementation of the PnP algorithm (Perspective-n-Point).
+
+#### OGM v0.2.2:
+- Perform checks and tests on potential false positives with `BOTH` actions, since the two eyes close and reopen at slightly different milliseconds, in order to evaluate updating the state machine in `BlinksModule._actions_timed_FSM`, and in case: update the FSM.
 
 #### OGM v0.3.0:
-1. Mouth movement gestures module.
-2. Add saving functionality for calibration data.
-3. Allow modules to be launched at runtime, provided they have been previously calibrated.
+1. Add the eyebrows module.
+2. *Evaluate the implementation of a virtual camera for the video channel to feed into MediaPipe.
+
+#### OGM v0.3.1:
+1. Add saving functionality for calibration data.
+2. Allow modules to be launched at runtime, provided they have been previously calibrated.
+
+#### OGM v0.4.0:
+- Mouth movement gestures module.
+
+#### OGM v0.5.0:
+- Eye movement gestures module.
+
+#### OGM v0.6.0:
+- Hand movement gestures module.
+
+#### OGM v1.0.0:
+- Add the `GEMINI.md`, `CLAUDE.md`, and `AGENTS.md` files as symlinks to a `.rules` file with precise instructions on the style and direction to adopt for development with the contribution of AI agents.
 
 #### Future versions:
-1. Eye movement gestures module. (v0.4.0)
-2. Hand movement gestures module. (v0.5.0)
-3. Rewriting the core API in C++ and Rust. (v1.0.0?)
-4. Too early to think any forward.
+- Rewriting the core API in C++ and Rust (?)
 
 ---
 
