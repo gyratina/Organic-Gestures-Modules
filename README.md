@@ -146,10 +146,13 @@ The roadmap I have set for the development of this API is:
 2. Rewrite the API architecture.
 3. *Evaluate the implementation of a virtual camera for the video channel to feed into MediaPipe.
 
-#### OGM v0.2.1:
-- Rework entirely the current face orientation calculations with the implementation of the PnP algorithm (Perspective-n-Point).
+#### OGM v0.2.1
+- Add the feature of disabling or enabling single modules both at runtime and not without closing their engine thread.
 
 #### OGM v0.2.2:
+- Rework entirely the current face orientation calculations with the implementation of the PnP algorithm (Perspective-n-Point).
+
+#### OGM v0.2.3:
 - Perform checks and tests on potential false positives with `BOTH` actions, since the two eyes close and reopen at slightly different milliseconds, in order to evaluate updating the state machine in `BlinksModule._actions_timed_FSM`, and in case: update the FSM.
 
 #### OGM v0.3.0:
@@ -170,6 +173,7 @@ The roadmap I have set for the development of this API is:
 - Hand movement gestures module.
 
 #### OGM v1.0.0:
+- Unlock Python GIL and tests.
 - Add the `GEMINI.md`, `CLAUDE.md`, and `AGENTS.md` files as symlinks to a `.rules` file with precise instructions on the style and direction to adopt for development with the contribution of AI agents.
 
 #### Future versions:
