@@ -112,6 +112,7 @@ class OGM:
                 )
                 return
 
+            self.action_ctx.actions_queue = Queue()
             self._actions_sentinel_thread = threading.Thread(
                 target=self._actions_sentinel,
                 args=(self.action_ctx.actions_queue, ),
@@ -151,8 +152,6 @@ class OGM:
         if self._face_engine_object is not None:
             self._face_engine_object.close()
 
-        self.action_ctx.actions_queue.put(item=None)
-
         if (
             self._face_engine_thread is not None
             and self._face_engine_thread.is_alive()
@@ -163,5 +162,7 @@ class OGM:
             self._actions_sentinel_thread is not None
             and self._actions_sentinel_thread.is_alive()
         ):
+            self.action_ctx.actions_queue.put(item=None)
             self._actions_sentinel_thread.join(timeout=2.0)
-            self.action_ctx.actions_queue = Queue()
+
+        self.action_ctx.actions_queue = Queue()
