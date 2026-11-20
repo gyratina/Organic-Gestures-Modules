@@ -53,7 +53,7 @@ class OGM:
         self._is_running: bool | None = None
 
         # Definizione thread dell'engine mediapipe del volto
-        self._face_engine_thread: threading.Thread
+        self._face_engine_thread: threading.Thread | None = None
 
         # Definizione del thread che chiama la callback on_action passandogli la copia
         # immutabile (tupla) della lista delle azioni
@@ -147,4 +147,21 @@ class OGM:
 
     # TODO
     def close(self) -> None:
-        pass
+        self._is_running = False
+        if self._face_engine_object is not None:
+            self._face_engine_object.close()
+
+        self.action_ctx.actions_queue.put(item=None)
+
+        if (
+            self._face_engine_thread is not None
+            and self._face_engine_thread.is_alive()
+        ):
+            self._face_engine_thread.join(timeout=2.0)
+
+        if (
+            self._actions_sentinel_thread is not None
+            and self._actions_sentinel_thread.is_alive()
+        ):
+            self._actions_sentinel_thread.join(timeout=2.0)
+            self.action_ctx.actions_queue = Queue()
