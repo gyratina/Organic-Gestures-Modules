@@ -68,7 +68,6 @@ class BlinksModule(Module):
         base_right_ear_threshold: float = 0.16,
         min_blink_time_threshold: int = 50,
         max_blink_time_threshold: int = 1000,
-        max_combo_delay: int = 2000, # TODO: Spostarlo in ActionsContext
         ear_diff_ratio: float = 0.20,
         calibration_threshold_ratio: float = 0.50,
     ) -> None:
