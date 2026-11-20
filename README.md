@@ -151,6 +151,7 @@ The roadmap I have set for the development of this API is:
 
 #### OGM v0.2.2:
 - Rework entirely the current face orientation calculations with the implementation of the PnP algorithm (Perspective-n-Point).
+- Add local telemetry (for tests only).
 
 #### OGM v0.2.3:
 - Perform checks and tests on potential false positives with `BOTH` actions, since the two eyes close and reopen at slightly different milliseconds, in order to evaluate updating the state machine in `BlinksModule._actions_timed_FSM`, and in case: update the FSM.
