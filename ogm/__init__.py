@@ -23,7 +23,17 @@
 
 
 from . import face
+from .actions import ActionType, BlinkAction
 from .camera_config import CameraConfig
-from .face import BlinkActionType, BlinksModule
+from .face import BlinksModule, FaceLandmarksDetection
+from .ogm import OGM
 
-__all__ = ["BlinkActionType", "BlinksModule", "CameraConfig", "face"]
+__all__ = [
+    "OGM",
+    "ActionType",
+    "BlinkAction",
+    "BlinksModule",
+    "CameraConfig",
+    "FaceLandmarksDetection",
+    "face",
+]

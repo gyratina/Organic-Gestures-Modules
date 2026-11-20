@@ -22,6 +22,7 @@
 # ========================================================================
 
 
-from .old_ogm import BlinkActionType, BlinksModule
+from .blinks_module import BlinksModule
+from .face_engine import FaceLandmarksDetection
 
-__all__ = ["BlinkActionType", "BlinksModule"]
+__all__ = ["BlinksModule", "FaceLandmarksDetection"]
