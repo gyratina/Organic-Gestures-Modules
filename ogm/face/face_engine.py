@@ -214,3 +214,6 @@ class FaceLandmarksDetection:
         self._is_running = False
         self._face_landmarker.close()
         video.release()
+
+    def close(self) -> None:
+        self._is_running = False
