@@ -34,96 +34,112 @@ I have included DocStrings within the API files, so if any information is missin
 ***Usage Example (Calibration & Detection):***
 ```python
 ### file_name: main.py
-# 
-import time
+
 import logging
-from ogm import ActionType, BlinkDetector, CameraConfig
+import threading
+from time import sleep
+
+from ogm import ActionType, BlinkAction, BlinksModule, CameraConfig, OGM
 
 # Optional: enable logging to track internal API events
-logging.basicConfig(level=logging.INFO, format="%(name)s - %(levelname)s - %(message)s")
-
-# Initialize the detector with custom precision parameters
-blink_detector = BlinkDetector(
-    ear_diff_ratio=0.20,
-    calibration_threshold_ratio=0.50,
-    sensitivity_coefficient=0.05
+logging.basicConfig(
+    level=logging.INFO, format="%(name)s - %(levelname)s - %(message)s"
 )
 
-# Define the callback to handle complex gesture sequences
+# 1. Initialize the gesture modules you want to enable
+blinks = BlinksModule(
+    ear_diff_ratio=0.20,
+    calibration_threshold_ratio=0.50,
+)
+
+# 2. Initialize the OGM orchestrator with the selected modules
+app = OGM(modules=[blinks])
+
+# Event used to wait until the 3-second calibration phase completes
+calib_done = threading.Event()
+
+
+# Define the callback to handle gesture sequences (and cross-module combos)
 def process_combinations(actions: tuple[tuple[ActionType, int], ...]) -> None:
     match actions:
-        # Both eyes double blink
-        case [*_, (ActionType.BOTH, p), (ActionType.BOTH, _)] if p <= 1000:
+        # Double blink with both eyes (max pause 1000 ms)
+        case [*_, (BlinkAction.BOTH, p), (BlinkAction.BOTH, _)] if p <= 1000:
             print("\nCOMBO DETECTED: Double Blink!")
-            blink_detector.reset_log()
+            app.clear()  # Clear the combo buffer after a match
 
-        # Combo: Right eye -> Left eye (max pause 1000ms)
-        case [*_, (ActionType.RIGHT, p_dx), (ActionType.LEFT, _)] if p_dx <= 1000:
+        # Combo: Right eye -> Left eye (max pause 1000 ms)
+        case [*_, (BlinkAction.RIGHT, p_dx), (BlinkAction.LEFT, _)] if p_dx <= 1000:
             print("\nCOMBO DETECTED: Right -> Left!")
-            blink_detector.reset_log()
+            app.clear()
 
         # Combo: Left eye -> Right eye
-        case [*_, (ActionType.LEFT, p_sx), (ActionType.RIGHT, _)] if p_sx <= 1000:
+        case [*_, (BlinkAction.LEFT, p_sx), (BlinkAction.RIGHT, _)] if p_sx <= 1000:
             print("\nCOMBO DETECTED: Left -> Right!")
-            blink_detector.reset_log()
+            app.clear()
 
         # 3-Move Super Combo: Right -> Left -> Right
-        case [*_, (ActionType.RIGHT, p1), (ActionType.LEFT, p2), (ActionType.RIGHT, _)] if p1 <= 1000 and p2 <= 1000:
+        case [
+            *_,
+            (BlinkAction.RIGHT, p1),
+            (BlinkAction.LEFT, p2),
+            (BlinkAction.RIGHT, _),
+        ] if p1 <= 1000 and p2 <= 1000:
             print("\nCOMBO DETECTED: Right -> Left -> Right!")
-            blink_detector.reset_log()
+            app.clear()
 
         # Combo: Double Right blink
-        case [*_, (ActionType.RIGHT, p), (ActionType.RIGHT, _)] if p <= 1000:
+        case [*_, (BlinkAction.RIGHT, p), (BlinkAction.RIGHT, _)] if p <= 1000:
             print("\nCOMBO DETECTED: Double Right!")
-            blink_detector.reset_log()
+            app.clear()
 
-        # Ignore any other sequence
+        # Ignore any other sequence until a valid combo matches
         case _:
             pass
 
-# Define the callback for automatic calibration results
-def on_calibration(left_eye: float, right_eye: float) -> None:
-    print("\nCalibration finished.")
-    print(f"Base Thresholds -> Left: {left_eye:.3f} | Right: {right_eye:.3f}\n")
 
-# Optional: telemetry callback to monitor real-time EAR and Thresholds data
-def telemetry(data: dict[str, float]) -> None:
-    print(f"EAR_L: {data['sx_eye_ear']:.3f} | EAR_R: {data['dx_eye_ear']:.3f} "
-          f"(Threshold L/R: {data['sx_eye_threshold']:.3f}/{data['dx_eye_threshold']:.3f})")
+# Define the callback for automatic calibration results (keyed by MODULE_NAME)
+def on_calibration(calibration_data: dict[str, dict[str, float]]) -> None:
+    blink_data = calibration_data.get(BlinksModule.MODULE_NAME, {})
+    print("\nCalibration finished.")
+    print(
+        f"Base Thresholds -> Left: {blink_data.get('left_ear_threshold', 0.0):.3f} | "
+        f"Right: {blink_data.get('right_ear_threshold', 0.0):.3f}\n"
+    )
+    calib_done.set()  # Unblock the main thread so we can move to detection
+
 
 if __name__ == "__main__":
-    # Bind callbacks to the detector
-    blink_detector.on_blink = process_combinations
-    blink_detector.on_calibration = on_calibration
-    # blink_detector.telemetry_callback = telemetry  # Uncomment to see live stats
-    
-    # Configure camera (use 0 for default webcam)
+    # Bind callbacks to the OGM orchestrator
+    app.on_calibration = on_calibration
+    app.on_action = process_combinations
+
+    # Configure camera (use 0 for the default webcam)
     my_camera = CameraConfig(camera_index=0, fps=60)
-    
+
     # ---------------------------------------------------------
     # 1. Calibration Phase (approx. 3 seconds)
     # ---------------------------------------------------------
     print("Starting Calibration. Please look at the camera with a neutral expression...")
-    blink_detector.start(mode="calibrate", camera_config=my_camera)
-    
-    time.sleep(3.5)
-    blink_detector.close()
-    
+    app.start(mode="calibrate", camera_config=my_camera)
+
+    calib_done.wait()  # Wait for on_calibration to signal completion
+    app.close()        # Release resources before restarting in detect mode
+
     # ---------------------------------------------------------
     # 2. Gesture Detection Phase
     # ---------------------------------------------------------
     print("Starting Gesture Detection...")
-    blink_detector.start(mode="detect", camera_config=my_camera)
-    
+    app.start(mode="detect", camera_config=my_camera)
+
     try:
-        # Keep the main thread alive while the daemon thread does the work
+        # Keep the main thread alive while background daemon threads run
         while True:
-            time.sleep(1)
+            sleep(1)
     except KeyboardInterrupt:
         print("\nExiting...")
     finally:
-        # Safely release resources on exit
-        blink_detector.close()
+        # Safely stop engines/sentinel threads and release the webcam
+        app.close()
 ```
 
 ---
@@ -144,7 +160,6 @@ The roadmap I have set for the development of this API is:
 #### OGM v0.2.0:
 1. Brainstorm how to restructure the API architecture to support the creation of other facial modules.
 2. Rewrite the API architecture.
-3. *Evaluate the implementation of a virtual camera for the video channel to feed into MediaPipe.
 
 #### OGM v0.2.1
 - Add the feature of disabling or enabling single modules both at runtime and not without closing their engine thread.
